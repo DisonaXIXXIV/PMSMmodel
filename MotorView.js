@@ -3,7 +3,15 @@
 // bottom card is also the home of the toolbar, so the whole dock is measured
 // here once: the view draws the card, the control panel lays its buttons into
 // the strip, and neither has to guess where the other put things.
-const MOTOR_COMPACT_HEADER_HEIGHT = 92.0;
+// Шапка компактной компоновки: заголовок, система координат и примечание об
+// обмотке. Её высота не задана числом, а складывается из этих отступов и того,
+// на сколько строк разошлось примечание, — машина начинается сразу под текстом,
+// а не под запасом на самый узкий экран.
+const MOTOR_COMPACT_SIDE_MARGIN = 16.0;
+const MOTOR_COMPACT_NOTE_TOP = 56.0;
+const MOTOR_COMPACT_NOTE_SIZE = 10.5;
+const MOTOR_COMPACT_NOTE_LEADING = 13.5;
+const MOTOR_COMPACT_HEADER_PADDING = 12.0;
 const MOTOR_LEGEND_ROW_HEIGHT = 24.0;
 const MOTOR_READOUT_BOTTOM_MARGIN = 19.0;
 const MOTOR_READOUT_LEGEND_GAP = 10.0;
@@ -116,7 +124,7 @@ class MotorView {
     this.centerX = area.x + area.w * 0.5;
     if (compact) {
       let scale = this.viewScale(area, true);
-      let bandTop = area.y + MOTOR_COMPACT_HEADER_HEIGHT * scale;
+      let bandTop = area.y + this.compactHeaderHeight(area, scale);
       let bandBottom = area.y + area.h - motorViewFooterHeight(scale, true);
       this.centerY = (bandTop + bandBottom) * 0.5;
       this.outerRadius = min(area.w * 0.46, (bandBottom - bandTop) * 0.46);
@@ -150,12 +158,32 @@ class MotorView {
     this.drawReadout(area, state, simulator, scale, compact);
   }
 
+  windingNote() {
+    return "ψf = " + nf(this.parameters.magnetFlux, 1, 2)
+      + " Вб; 18 пазов, q = 3;  • — из плоскости, × — в плоскость";
+  }
+
+  // Примечание переносится по словам здесь, а не отдаётся текстовому блоку p5:
+  // тогда шапка знает свою высоту заранее и рисует ровно то, что измерила.
+  compactNoteLines(area, scale) {
+    textSize(MOTOR_COMPACT_NOTE_SIZE * scale);
+    let words = this.windingNote().split(/\s+/).filter((word) => word.length > 0);
+    let widths = words.map((word) => textWidth(word));
+    let lines = flowIntoLines(widths, textWidth(" "),
+      area.w - 2.0 * MOTOR_COMPACT_SIDE_MARGIN * scale);
+    return lines.map((line) => line.map((index) => words[index]).join(" "));
+  }
+
+  compactHeaderHeight(area, scale) {
+    let lines = this.compactNoteLines(area, scale).length;
+    return (MOTOR_COMPACT_NOTE_TOP + MOTOR_COMPACT_HEADER_PADDING) * scale
+      + lines * MOTOR_COMPACT_NOTE_LEADING * scale;
+  }
+
   drawCaptions(area, scale, compact) {
-    let x = area.x + (compact ? 16.0 : 17.0) * scale;
+    let x = area.x + (compact ? MOTOR_COMPACT_SIDE_MARGIN : 17.0) * scale;
     let frameName = this.settings.lockDqFrame ? "система наблюдения d–q зафиксирована"
       : "неподвижная система α–β";
-    let windingNote = "ψf = " + nf(this.parameters.magnetFlux, 1, 2)
-      + " Вб; 18 пазов, q = 3;  • — из плоскости, × — в плоскость";
 
     fillTheme(theme().motorTitle);
     textAlign(LEFT, TOP);
@@ -163,7 +191,7 @@ class MotorView {
       // The title is the widest fixed string on the screen; on a phone it has
       // to give way rather than run off the edge.
       fittedTextSize("Синхронная машина с постоянными магнитами",
-        area.w - 32.0 * scale, 19.0 * scale, 11.0 * scale);
+        area.w - 2.0 * MOTOR_COMPACT_SIDE_MARGIN * scale, 19.0 * scale, 11.0 * scale);
     } else {
       textSize(19.0 * scale);
     }
@@ -171,16 +199,20 @@ class MotorView {
 
     fillTheme(theme().motorSubtitle);
     textSize(11.5 * scale);
-    text(frameName, area.x + (compact ? 16.0 : 18.0) * scale,
+    text(frameName, area.x + (compact ? MOTOR_COMPACT_SIDE_MARGIN : 18.0) * scale,
       area.y + (compact ? 38.0 : 41.0) * scale);
 
     fillTheme(theme().motorNote);
-    textSize(10.5 * scale);
     if (compact) {
-      text(windingNote, area.x + 16.0 * scale, area.y + 56.0 * scale,
-        area.w - 32.0 * scale, 32.0 * scale);
+      let lines = this.compactNoteLines(area, scale);
+      textSize(MOTOR_COMPACT_NOTE_SIZE * scale);
+      for (let i = 0; i < lines.length; i++) {
+        text(lines[i], x, area.y + (MOTOR_COMPACT_NOTE_TOP
+          + i * MOTOR_COMPACT_NOTE_LEADING) * scale);
+      }
     } else {
-      text(windingNote, area.x + 18.0 * scale, area.y + 57.0 * scale);
+      textSize(10.5 * scale);
+      text(this.windingNote(), area.x + 18.0 * scale, area.y + 57.0 * scale);
     }
   }
 

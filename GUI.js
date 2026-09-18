@@ -17,10 +17,12 @@ const SHEET_DISMISS_DISTANCE = 70.0;
 const TAB_CONTROL = 0;
 const TAB_VISUALISATION = 1;
 
-// Сегменты полосы действий, слева направо.
+// Сегменты полосы действий, слева направо. Пауза и сброс стоят рядом тем же
+// порядком, что и одноимённые кнопки внизу шторки.
 const TOOLBAR_THEME = 0;
 const TOOLBAR_PAUSE = 1;
-const TOOLBAR_SETTINGS = 2;
+const TOOLBAR_RESET = 2;
+const TOOLBAR_SETTINGS = 3;
 
 // Shrinks a label until it fits, for the few headings that are set in one line
 // at whatever width the screen happens to be.
@@ -342,6 +344,7 @@ const ICON_PAUSE = 1;
 const ICON_PLAY = 2;
 const ICON_SUN = 3;
 const ICON_MOON = 4;
+const ICON_RESET = 5;
 
 function drawControlIcon(icon, centreX, centreY, size, glyphColor) {
   strokeTheme(glyphColor);
@@ -384,6 +387,19 @@ function drawControlIcon(icon, centreX, centreY, size, glyphColor) {
     noStroke();
     fillTheme(glyphColor);
     drawCrescentGlyph(centreX, centreY, size * 0.32);
+  } else if (icon === ICON_RESET) {
+    // Круговая стрелка: дуга в три четверти оборота с разрывом вверху справа и
+    // остриём на верхнем конце. Ось y на полотне направлена вниз, поэтому по
+    // часовой стрелке дуга идёт в сторону роста угла, а её касательная наверху
+    // смотрит вправо — туда же и остриё.
+    let radius = size * 0.27;
+    let endAngle = -HALF_PI;
+    arc(centreX, centreY, radius * 2.0, radius * 2.0, endAngle - 1.6 * PI, endAngle);
+    noStroke();
+    fillTheme(glyphColor);
+    triangle(centreX + size * 0.2, centreY - radius,
+      centreX - size * 0.09, centreY - radius - size * 0.14,
+      centreX - size * 0.09, centreY - radius + size * 0.14);
   }
   noStroke();
 }
@@ -473,7 +489,7 @@ class ToolbarControl {
         this.h * 0.38, glyphColor);
       fillTheme(active ? theme().toolbarActiveLabel : theme().toolbarLabel);
       textAlign(CENTER, CENTER);
-      fittedTextSize(this.segments[i].label, segmentWidth - 8.0 * this.scale,
+      fittedTextSize(this.segments[i].label, segmentWidth - 14.0 * this.scale,
         10.5 * this.scale * PANEL_FONT_SCALE, 8.0 * this.scale);
       text(this.segments[i].label, centreX, this.y + this.h * 0.76);
     }
@@ -588,6 +604,7 @@ class ControlPanel {
     this.toolbar = new ToolbarControl([
       { icon: ICON_SUN, label: "Тема" },
       { icon: ICON_PAUSE, label: "Пауза" },
+      { icon: ICON_RESET, label: "Сброс" },
       { icon: ICON_SETTINGS, label: "Настройки" },
     ]);
 
@@ -983,6 +1000,10 @@ class ControlPanel {
     }
     if (segment === TOOLBAR_PAUSE) {
       simulationPaused = !simulationPaused;
+      return true;
+    }
+    if (segment === TOOLBAR_RESET) {
+      resetSimulation();
       return true;
     }
     if (segment === TOOLBAR_SETTINGS) {

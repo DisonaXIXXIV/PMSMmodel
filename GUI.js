@@ -356,7 +356,10 @@ class ControlPanel {
       this.alphaBetaProjectionCheckbox, this.dqProjectionCheckbox, this.lockDqCheckbox
     ];
     for (let i = 0; i < visualChecks.length; i++) {
-      let row = i / 2;
+      // Processing truncated this division because i was an int; in JavaScript
+      // it yields half-row offsets, which staggered the two columns and made
+      // them overlap outright once the rows grew taller than the gap.
+      let row = floor(i / 2);
       let column = i % 2;
       let checkX = contentX + column * (columnWidth + columnGap);
       let checkY = y + row * 25.0 * this.uiScale;

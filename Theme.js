@@ -175,7 +175,9 @@ const LIGHT_PALETTE = {
   buttonFillSelected: [40, 130, 174],
   buttonLabel: [64, 77, 96],
   buttonLabelSelected: [255, 255, 255],
-  iconButtonFill: [255, 255, 255, 235],
+  // Не чисто белая: на светлом фоне машины белый диск сливался бы с ним, а
+  // тени в скетче нет.
+  iconButtonFill: [225, 231, 240, 240],
   iconButtonFillActive: [245, 186, 106],
   iconButtonGlyph: [38, 49, 66],
 

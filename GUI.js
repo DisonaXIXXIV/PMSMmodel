@@ -331,10 +331,14 @@ class ButtonRowControl {
 }
 
 // The round buttons the compact layout leaves on top of the machine: one opens
-// the settings sheet, one holds and resumes the simulation.
+// the settings sheet, one holds and resumes the simulation, one switches the
+// theme. The sun and the moon show the theme the button leads to, not the one
+// already on the screen.
 const ICON_SETTINGS = 0;
 const ICON_PAUSE = 1;
 const ICON_PLAY = 2;
+const ICON_SUN = 3;
+const ICON_MOON = 4;
 
 class IconButtonControl {
   icon;
@@ -383,6 +387,21 @@ class IconButtonControl {
       let barHeight = this.diameter * 0.19;
       line(centreX - barOffset, centreY - barHeight, centreX - barOffset, centreY + barHeight);
       line(centreX + barOffset, centreY - barHeight, centreX + barOffset, centreY + barHeight);
+    } else if (this.icon === ICON_SUN) {
+      // Тонкие лучи: на диске в 15 px общая толщина штриха кнопки читается как
+      // клякса, поэтому солнце рисуется своей.
+      strokeWeight(this.diameter * 0.045);
+      let coreRadius = this.diameter * 0.125;
+      circle(centreX, centreY, coreRadius * 2.0);
+      for (let ray = 0; ray < 8; ray++) {
+        let angle = TWO_PI * ray / 8.0;
+        line(centreX + cos(angle) * coreRadius * 1.65, centreY + sin(angle) * coreRadius * 1.65,
+          centreX + cos(angle) * coreRadius * 2.4, centreY + sin(angle) * coreRadius * 2.4);
+      }
+    } else if (this.icon === ICON_MOON) {
+      noStroke();
+      fillTheme(theme().iconButtonGlyph);
+      this.drawCrescent(centreX, centreY, this.diameter * 0.2);
     } else {
       noStroke();
       fillTheme(theme().iconButtonGlyph);
@@ -391,6 +410,31 @@ class IconButtonControl {
         centreX + reach, centreY);
     }
     noStroke();
+  }
+
+  // Полумесяц — область между внешней окружностью и смещённой вырезающей.
+  // Он собирается одной фигурой, а не заливкой поверх: кнопка полупрозрачна,
+  // и «вырезанная» её же цветом долька просвечивала бы машиной за кнопкой.
+  drawCrescent(cx, cy, radius) {
+    let offset = radius * 0.55;
+    let cutRadius = radius * 0.9;
+    // Точка пересечения двух окружностей; по ней находятся углы, на которых
+    // одна дуга переходит в другую.
+    let crossX = (offset * offset + radius * radius - cutRadius * cutRadius) / (2.0 * offset);
+    let crossY = sqrt(max(0.0, radius * radius - crossX * crossX));
+    let outerStart = atan2(crossY, crossX);
+    let cutStart = atan2(crossY, crossX - offset);
+    let steps = 18;
+    beginShape();
+    for (let i = 0; i <= steps; i++) {
+      let angle = lerp(outerStart, TWO_PI - outerStart, i / steps);
+      vertex(cx + radius * cos(angle), cy + radius * sin(angle));
+    }
+    for (let i = 0; i <= steps; i++) {
+      let angle = lerp(TWO_PI - cutStart, cutStart, i / steps);
+      vertex(cx + offset + cutRadius * cos(angle), cy + cutRadius * sin(angle));
+    }
+    endShape(CLOSE);
   }
 
   press(px, py) {
@@ -432,6 +476,7 @@ class ControlPanel {
   tabButtons;
   settingsButton;
   pauseButton;
+  themeButton;
 
   allSliders;
   allCheckboxes;
@@ -500,6 +545,7 @@ class ControlPanel {
     this.tabButtons.labelSize = 12.0;
     this.settingsButton = new IconButtonControl(ICON_SETTINGS);
     this.pauseButton = new IconButtonControl(ICON_PAUSE);
+    this.themeButton = new IconButtonControl(ICON_SUN);
 
     this.allSliders = [
       this.loadSlider, this.voltageSlider, this.frequencySlider, this.currentQSlider,
@@ -540,6 +586,7 @@ class ControlPanel {
     this.actionButtons.selectedIndex = simulationPaused ? 0 : -1;
     this.tabButtons.selectedIndex = this.activeTab;
     this.pauseButton.icon = simulationPaused ? ICON_PLAY : ICON_PAUSE;
+    this.themeButton.icon = isLightTheme() ? ICON_MOON : ICON_SUN;
   }
 
   hideAllControls() {
@@ -548,6 +595,7 @@ class ControlPanel {
     for (const row of this.allButtonRows) row.visible = false;
     this.settingsButton.visible = false;
     this.pauseButton.visible = false;
+    this.themeButton.visible = false;
   }
 
   // -- layout helpers -------------------------------------------------------
@@ -704,13 +752,19 @@ class ControlPanel {
       - motorViewFooterHeight(motorView.viewScale(area, true), true)
       - buttonDiameter - margin;
     let settingsX = area.x + area.w - margin - buttonDiameter;
+    let buttonAdvance = buttonDiameter + buttonGap;
     this.settingsButton.setBounds(settingsX, buttonsY, buttonDiameter);
-    this.pauseButton.setBounds(settingsX - buttonDiameter - buttonGap, buttonsY, buttonDiameter);
+    this.pauseButton.setBounds(settingsX - buttonAdvance, buttonsY, buttonDiameter);
+    // Тема — третья кнопка того же ряда: на телефоне флажок в шторке до неё
+    // прячется, а переключаться хочется, не открывая настройки.
+    this.themeButton.setBounds(settingsX - 2.0 * buttonAdvance, buttonsY, buttonDiameter);
 
     if (!this.sheetOpen) {
       this.sheetTop = area.y + area.h;
       this.settingsButton.visible = true;
       this.pauseButton.visible = true;
+      this.themeButton.visible = true;
+      this.themeButton.drawControl(false);
       this.pauseButton.drawControl(simulationPaused);
       this.settingsButton.drawControl(false);
       return;
@@ -720,6 +774,7 @@ class ControlPanel {
     // handle close it.
     this.settingsButton.visible = false;
     this.pauseButton.visible = false;
+    this.themeButton.visible = false;
 
     // Lay the sheet out against a zero origin to learn how tall it wants to be,
     // shrinking the rows if the screen cannot give it that, and only then place
@@ -896,6 +951,12 @@ class ControlPanel {
     }
     if (this.pauseButton.press(px, py)) {
       simulationPaused = !simulationPaused;
+      return true;
+    }
+    if (this.themeButton.press(px, py)) {
+      toggleTheme();
+      // Флажок в шторке показывает ту же настройку и должен остаться в такте.
+      this.themeCheckbox.checked = isLightTheme();
       return true;
     }
     if (!this.sheetOpen) return false;

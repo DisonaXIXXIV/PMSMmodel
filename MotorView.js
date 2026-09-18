@@ -419,21 +419,25 @@ class MotorView {
   drawLegend(area, uiScale) {
     let x = area.x + 17.0 * uiScale;
     let y = area.y + area.h - 116.0 * uiScale;
-    this.drawLegendItem(x, y, color(73, 220, 232), "ток i");
-    this.drawLegendItem(x + 85.0 * uiScale, y, color(247, 205, 74), "напряжение u");
-    this.drawLegendItem(x + 215.0 * uiScale, y, color(236, 102, 190), "ЭДС E");
-    this.drawLegendItem(x + 305.0 * uiScale, y, color(75, 205, 126), "Mдв");
-    this.drawLegendItem(x + 375.0 * uiScale, y, color(241, 146, 71), "Mнагр");
+    this.drawLegendItem(x, y, color(73, 220, 232), "ток i", uiScale);
+    this.drawLegendItem(x + 85.0 * uiScale, y, color(247, 205, 74), "напряжение u", uiScale);
+    this.drawLegendItem(x + 215.0 * uiScale, y, color(236, 102, 190), "ЭДС E", uiScale);
+    this.drawLegendItem(x + 305.0 * uiScale, y, color(75, 205, 126), "Mдв", uiScale);
+    this.drawLegendItem(x + 375.0 * uiScale, y, color(241, 146, 71), "Mнагр", uiScale);
   }
 
-  drawLegendItem(x, y, itemColor, label) {
+  drawLegendItem(x, y, itemColor, label, uiScale) {
+    // The legend sits with the readout, so it follows uiScale like the rest of
+    // the panel text instead of the motor radius: item spacing is already scaled,
+    // and tying the label to the geometry made it drift out of step with the gaps.
+    let markerY = y + 7.0 * uiScale;
     noStroke();
     fill(itemColor);
-    circle(x + 4.0, y + 7.0, 7.0);
+    circle(x + 4.0 * uiScale, markerY, 7.0 * uiScale);
     fill(159, 174, 195);
-    textAlign(LEFT, TOP);
-    textSize(max(8.5, this.outerRadius * 0.046));
-    text(label, x + 12.0, y);
+    textAlign(LEFT, CENTER);
+    textSize(11.0 * uiScale);
+    text(label, x + 12.0 * uiScale, markerY);
   }
 
   drawReadout(area, state, simulator, uiScale) {

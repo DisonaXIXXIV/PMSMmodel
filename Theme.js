@@ -63,6 +63,15 @@ const DARK_PALETTE = {
   readoutCard: [23, 29, 39],
   readoutText: [194, 205, 220],
   pausedMark: [245, 177, 80],
+  // Нижняя карточка компактной компоновки: разделители внутри неё и сегменты
+  // полосы действий. Включённое действие — пока это только пауза — берёт тот
+  // же янтарный акцент, что и надпись «ПАУЗА» в широкой компоновке.
+  dockDivider: [47, 57, 73],
+  toolbarGlyph: [178, 192, 211],
+  toolbarLabel: [159, 174, 195],
+  toolbarActiveFill: [46, 60, 79],
+  toolbarActiveGlyph: [245, 177, 80],
+  toolbarActiveLabel: [246, 198, 137],
 
   // -- панель управления ----------------------------------------------------
   panelBackground: [23, 28, 38],
@@ -89,10 +98,6 @@ const DARK_PALETTE = {
   buttonFillSelected: [49, 142, 178],
   buttonLabel: [180, 192, 210],
   buttonLabelSelected: [247, 247, 247],
-  iconButtonFill: [40, 49, 64, 235],
-  iconButtonFillActive: [158, 105, 47],
-  iconButtonGlyph: [226, 233, 242],
-
   // -- шторка компактной компоновки -----------------------------------------
   sheetScrim: [8, 11, 16, 190],
   sheetBackground: [23, 28, 38],
@@ -149,6 +154,12 @@ const LIGHT_PALETTE = {
   readoutCard: [233, 237, 244],
   readoutText: [46, 57, 74],
   pausedMark: [176, 98, 8],
+  dockDivider: [206, 214, 227],
+  toolbarGlyph: [64, 77, 96],
+  toolbarLabel: [86, 99, 119],
+  toolbarActiveFill: [214, 222, 234],
+  toolbarActiveGlyph: [176, 98, 8],
+  toolbarActiveLabel: [140, 78, 6],
 
   panelBackground: [238, 242, 247],
   panelDivider: [216, 222, 232],
@@ -175,12 +186,6 @@ const LIGHT_PALETTE = {
   buttonFillSelected: [40, 130, 174],
   buttonLabel: [64, 77, 96],
   buttonLabelSelected: [255, 255, 255],
-  // Не чисто белая: на светлом фоне машины белый диск сливался бы с ним, а
-  // тени в скетче нет.
-  iconButtonFill: [225, 231, 240, 240],
-  iconButtonFillActive: [245, 186, 106],
-  iconButtonGlyph: [38, 49, 66],
-
   sheetScrim: [16, 22, 32, 120],
   sheetBackground: [255, 255, 255],
   sheetHandle: [178, 188, 204],

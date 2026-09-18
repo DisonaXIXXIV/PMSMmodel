@@ -1,11 +1,17 @@
 // The machine view reserves a band at the top for its captions and a band at
-// the bottom for the legend and the live values. The compact panel needs the
-// bottom one too, to keep its round buttons clear of the readout, so both are
-// derived from the view scale here instead of being measured while drawing.
+// the bottom for the legend and the live values. In the compact layout that
+// bottom card is also the home of the toolbar, so the whole dock is measured
+// here once: the view draws the card, the control panel lays its buttons into
+// the strip, and neither has to guess where the other put things.
 const MOTOR_COMPACT_HEADER_HEIGHT = 92.0;
 const MOTOR_LEGEND_ROW_HEIGHT = 24.0;
 const MOTOR_READOUT_BOTTOM_MARGIN = 19.0;
 const MOTOR_READOUT_LEGEND_GAP = 10.0;
+const MOTOR_DOCK_SIDE_MARGIN = 17.0;
+// Полоса действий — часть карточки показаний, а не кнопки поверх машины. При
+// самом мелком масштабе компактной компоновки (0.92) эти 52 px дают 47.8 px
+// высоты, то есть остаются выше порога комфортного касания.
+const MOTOR_TOOLBAR_HEIGHT = 52.0;
 
 function motorViewLegendRows(compact) {
   return compact ? 2 : 1;
@@ -15,10 +21,33 @@ function motorViewReadoutHeight(scale, compact) {
   return (compact ? 89.0 : 63.0) * scale;
 }
 
+function motorViewToolbarHeight(scale, compact) {
+  return compact ? MOTOR_TOOLBAR_HEIGHT * scale : 0.0;
+}
+
+// Карточка у нижнего края: показания, а под ними — в компактной компоновке —
+// полоса кнопок. Возвращает и внешний прямоугольник карточки, и границу между
+// двумя её частями, потому что рисуют их разные классы.
+function motorViewDockBounds(area, scale, compact) {
+  let readoutHeight = motorViewReadoutHeight(scale, compact);
+  let toolbarHeight = motorViewToolbarHeight(scale, compact);
+  let height = readoutHeight + toolbarHeight;
+  return {
+    x: area.x + MOTOR_DOCK_SIDE_MARGIN * scale,
+    y: area.y + area.h - MOTOR_READOUT_BOTTOM_MARGIN * scale - height,
+    w: area.w - 2.0 * MOTOR_DOCK_SIDE_MARGIN * scale,
+    h: height,
+    readoutHeight,
+    toolbarHeight,
+    toolbarY: area.y + area.h - MOTOR_READOUT_BOTTOM_MARGIN * scale - toolbarHeight,
+  };
+}
+
 function motorViewFooterHeight(scale, compact) {
   return motorViewLegendRows(compact) * MOTOR_LEGEND_ROW_HEIGHT * scale
     + MOTOR_READOUT_LEGEND_GAP * scale
     + motorViewReadoutHeight(scale, compact)
+    + motorViewToolbarHeight(scale, compact)
     + MOTOR_READOUT_BOTTOM_MARGIN * scale;
 }
 
@@ -486,7 +515,7 @@ class MotorView {
       [themeColor(theme().torqueLoad, 255), "Mнагр"],
     ];
     let rows = motorViewLegendRows(compact);
-    let available = area.w - 34.0 * scale;
+    let available = area.w - 2.0 * MOTOR_DOCK_SIDE_MARGIN * scale;
     // Match the control panel's body text, PANEL_FONT_SCALE included: the motor
     // side never got that 15 % boost, which left the legend reading small next
     // to the panel. The items were laid out on hand-tuned offsets that only
@@ -507,9 +536,9 @@ class MotorView {
       labelSize -= 0.5;
     }
 
-    let x = area.x + 17.0 * scale;
-    let top = area.y + area.h - MOTOR_READOUT_BOTTOM_MARGIN * scale
-      - motorViewReadoutHeight(scale, compact) - MOTOR_READOUT_LEGEND_GAP * scale
+    let x = area.x + MOTOR_DOCK_SIDE_MARGIN * scale;
+    let dock = motorViewDockBounds(area, scale, compact);
+    let top = dock.y - MOTOR_READOUT_LEGEND_GAP * scale
       - rows * MOTOR_LEGEND_ROW_HEIGHT * scale;
     for (let row = 0; row < lines.length; row++) {
       let itemX = x;
@@ -536,13 +565,15 @@ class MotorView {
   }
 
   drawReadout(area, state, simulator, scale, compact) {
-    let x = area.x + 17.0 * scale;
-    let w = area.w - 34.0 * scale;
-    let readoutHeight = motorViewReadoutHeight(scale, compact);
-    let y = area.y + area.h - MOTOR_READOUT_BOTTOM_MARGIN * scale - readoutHeight;
+    let dock = motorViewDockBounds(area, scale, compact);
+    let x = dock.x;
+    let w = dock.w;
+    let y = dock.y;
     noStroke();
     fillTheme(theme().readoutCard);
-    rect(x, y, w, readoutHeight, 7.0 * scale);
+    // Одна карточка на показания и на полосу действий: кнопки внизу экрана
+    // читаются как часть этого блока, а не как что-то положенное поверх него.
+    rect(x, y, w, dock.h, 7.0 * scale);
 
     let speed = "n = " + formatSignedNumber(rpmFromRadians(state.mechanicalSpeed), 0) + " об/мин";
     let motorTorque = "Mдв = " + nf(state.electromagneticTorque, 1, 2) + " Н·м";
@@ -572,10 +603,19 @@ class MotorView {
       text(speed + "     " + motorTorque + "     " + loadTorque, x + 11.0 * scale, y + 9.0 * scale);
       text(currentD + "     " + currentQ + "     " + voltage, x + 11.0 * scale, y + 34.0 * scale);
     }
-    if (simulationPaused) {
+    if (compact) {
+      // Волосяная линия отделяет показания от кнопок: карточка остаётся одной
+      // деталью, но видно, где кончаются цифры и начинаются органы управления.
+      strokeTheme(theme().dockDivider);
+      strokeWeight(1.0);
+      line(x + 10.0 * scale, dock.toolbarY, x + w - 10.0 * scale, dock.toolbarY);
+      noStroke();
+    } else if (simulationPaused) {
+      // В компактной компоновке о паузе говорит подсвеченная кнопка в полосе
+      // под этими цифрами, и вторая надпись о том же только отняла бы место.
       fillTheme(theme().pausedMark);
       textAlign(RIGHT, TOP);
-      textSize((compact ? 12.5 : 11.0) * scale);
+      textSize(11.0 * scale);
       text("ПАУЗА", x + w - 10.0 * scale, y + 9.0 * scale);
     }
   }

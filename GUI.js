@@ -17,6 +17,11 @@ const SHEET_DISMISS_DISTANCE = 70.0;
 const TAB_CONTROL = 0;
 const TAB_VISUALISATION = 1;
 
+// Сегменты полосы действий, слева направо.
+const TOOLBAR_THEME = 0;
+const TOOLBAR_PAUSE = 1;
+const TOOLBAR_SETTINGS = 2;
+
 // Shrinks a label until it fits, for the few headings that are set in one line
 // at whatever width the screen happens to be.
 function fittedTextSize(label, maximumWidth, desiredSize, minimumSize) {
@@ -330,117 +335,154 @@ class ButtonRowControl {
   }
 }
 
-// The round buttons the compact layout leaves on top of the machine: one opens
-// the settings sheet, one holds and resumes the simulation, one switches the
-// theme. The sun and the moon show the theme the button leads to, not the one
-// already on the screen.
+// Значки полосы действий. Они рисуются, а не набираются шрифтом: шрифта с
+// такими символами может не оказаться, и тогда кнопка осталась бы пустой.
 const ICON_SETTINGS = 0;
 const ICON_PAUSE = 1;
 const ICON_PLAY = 2;
 const ICON_SUN = 3;
 const ICON_MOON = 4;
 
-class IconButtonControl {
-  icon;
+function drawControlIcon(icon, centreX, centreY, size, glyphColor) {
+  strokeTheme(glyphColor);
+  strokeWeight(size * 0.09);
+  noFill();
+  if (icon === ICON_SETTINGS) {
+    let reach = size * 0.42;
+    let spacing = size * 0.28;
+    for (let row = -1; row <= 1; row++) {
+      let lineY = centreY + row * spacing;
+      line(centreX - reach, lineY, centreX + reach, lineY);
+      noStroke();
+      fillTheme(glyphColor);
+      circle(centreX + row * reach * 0.55, lineY, size * 0.21);
+      strokeTheme(glyphColor);
+      noFill();
+    }
+  } else if (icon === ICON_PAUSE) {
+    let barOffset = size * 0.16;
+    let barHeight = size * 0.31;
+    line(centreX - barOffset, centreY - barHeight, centreX - barOffset, centreY + barHeight);
+    line(centreX + barOffset, centreY - barHeight, centreX + barOffset, centreY + barHeight);
+  } else if (icon === ICON_PLAY) {
+    noStroke();
+    fillTheme(glyphColor);
+    let reach = size * 0.28;
+    triangle(centreX - reach * 0.75, centreY - reach, centreX - reach * 0.75, centreY + reach,
+      centreX + reach, centreY);
+  } else if (icon === ICON_SUN) {
+    // Тонкие лучи: общей толщиной штриха значка солнце читается как клякса.
+    strokeWeight(size * 0.072);
+    let coreRadius = size * 0.2;
+    circle(centreX, centreY, coreRadius * 2.0);
+    for (let ray = 0; ray < 8; ray++) {
+      let angle = TWO_PI * ray / 8.0;
+      line(centreX + cos(angle) * coreRadius * 1.65, centreY + sin(angle) * coreRadius * 1.65,
+        centreX + cos(angle) * coreRadius * 2.4, centreY + sin(angle) * coreRadius * 2.4);
+    }
+  } else if (icon === ICON_MOON) {
+    noStroke();
+    fillTheme(glyphColor);
+    drawCrescentGlyph(centreX, centreY, size * 0.32);
+  }
+  noStroke();
+}
+
+// Полумесяц — область между внешней окружностью и смещённой вырезающей. Он
+// собирается одной фигурой, а не заливкой поверх: подложка сегмента бывает
+// подсвеченной, и «вырезанная» цветом карточки долька выдала бы себя.
+function drawCrescentGlyph(cx, cy, radius) {
+  let offset = radius * 0.55;
+  let cutRadius = radius * 0.9;
+  // Точка пересечения двух окружностей; по ней находятся углы, на которых одна
+  // дуга переходит в другую.
+  let crossX = (offset * offset + radius * radius - cutRadius * cutRadius) / (2.0 * offset);
+  let crossY = sqrt(max(0.0, radius * radius - crossX * crossX));
+  let outerStart = atan2(crossY, crossX);
+  let cutStart = atan2(crossY, crossX - offset);
+  let steps = 18;
+  beginShape();
+  for (let i = 0; i <= steps; i++) {
+    let angle = lerp(outerStart, TWO_PI - outerStart, i / steps);
+    vertex(cx + radius * cos(angle), cy + radius * sin(angle));
+  }
+  for (let i = 0; i <= steps; i++) {
+    let angle = lerp(TWO_PI - cutStart, cutStart, i / steps);
+    vertex(cx + offset + cutRadius * cos(angle), cy + cutRadius * sin(angle));
+  }
+  endShape(CLOSE);
+}
+
+// Полоса действий компактной компоновки. Она занимает нижнюю часть карточки
+// показаний, поэтому это не кнопки поверх машины, а сегменты одной детали —
+// значок со своей подписью, разделители волосяной линией, подсветка у
+// включённого действия.
+class ToolbarControl {
+  segments;
+  activeIndex = -1;
   x;
   y;
-  diameter;
+  w;
+  h;
+  scale = 1.0;
   visible = false;
 
-  constructor(icon) {
-    this.icon = icon;
+  constructor(segments) {
+    this.segments = segments;
   }
 
-  setBounds(x, y, diameter) {
+  setBounds(x, y, w, h, scale) {
     this.x = x;
     this.y = y;
-    this.diameter = diameter;
+    this.w = w;
+    this.h = h;
+    this.scale = scale;
   }
 
-  drawControl(highlighted) {
+  segmentWidth() {
+    return this.w / this.segments.length;
+  }
+
+  segmentX(index) {
+    return this.x + index * this.segmentWidth();
+  }
+
+  drawControl() {
     if (!this.visible) return;
-    let radius = this.diameter * 0.5;
-    noStroke();
-    fillTheme(highlighted ? theme().iconButtonFillActive : theme().iconButtonFill);
-    circle(this.x + radius, this.y + radius, this.diameter);
-    strokeTheme(theme().iconButtonGlyph);
-    strokeWeight(this.diameter * 0.055);
-    noFill();
-    let centreX = this.x + radius;
-    let centreY = this.y + radius;
-    // The glyphs are drawn rather than typed: a font that lacks them would
-    // otherwise leave an empty circle with no way to tell what it does.
-    if (this.icon === ICON_SETTINGS) {
-      let reach = this.diameter * 0.26;
-      let spacing = this.diameter * 0.17;
-      for (let row = -1; row <= 1; row++) {
-        let lineY = centreY + row * spacing;
-        line(centreX - reach, lineY, centreX + reach, lineY);
+    let segmentWidth = this.segmentWidth();
+    for (let i = 0; i < this.segments.length; i++) {
+      let active = this.activeIndex === i;
+      let x = this.segmentX(i);
+      let centreX = x + segmentWidth * 0.5;
+      if (active) {
         noStroke();
-        fillTheme(theme().iconButtonGlyph);
-        circle(centreX + row * reach * 0.55, lineY, this.diameter * 0.13);
-        strokeTheme(theme().iconButtonGlyph);
-        noFill();
+        fillTheme(theme().toolbarActiveFill);
+        rect(x + 3.0 * this.scale, this.y + 4.0 * this.scale,
+          segmentWidth - 6.0 * this.scale, this.h - 8.0 * this.scale, 7.0 * this.scale);
       }
-    } else if (this.icon === ICON_PAUSE) {
-      let barOffset = this.diameter * 0.1;
-      let barHeight = this.diameter * 0.19;
-      line(centreX - barOffset, centreY - barHeight, centreX - barOffset, centreY + barHeight);
-      line(centreX + barOffset, centreY - barHeight, centreX + barOffset, centreY + barHeight);
-    } else if (this.icon === ICON_SUN) {
-      // Тонкие лучи: на диске в 15 px общая толщина штриха кнопки читается как
-      // клякса, поэтому солнце рисуется своей.
-      strokeWeight(this.diameter * 0.045);
-      let coreRadius = this.diameter * 0.125;
-      circle(centreX, centreY, coreRadius * 2.0);
-      for (let ray = 0; ray < 8; ray++) {
-        let angle = TWO_PI * ray / 8.0;
-        line(centreX + cos(angle) * coreRadius * 1.65, centreY + sin(angle) * coreRadius * 1.65,
-          centreX + cos(angle) * coreRadius * 2.4, centreY + sin(angle) * coreRadius * 2.4);
+      if (i > 0 && !active && this.activeIndex !== i - 1) {
+        // Разделители между соседними сегментами; рядом с подсветкой линия
+        // лишняя — её роль там играет край подложки.
+        strokeTheme(theme().dockDivider);
+        strokeWeight(1.0);
+        line(x, this.y + this.h * 0.24, x, this.y + this.h * 0.76);
+        noStroke();
       }
-    } else if (this.icon === ICON_MOON) {
-      noStroke();
-      fillTheme(theme().iconButtonGlyph);
-      this.drawCrescent(centreX, centreY, this.diameter * 0.2);
-    } else {
-      noStroke();
-      fillTheme(theme().iconButtonGlyph);
-      let reach = this.diameter * 0.17;
-      triangle(centreX - reach * 0.75, centreY - reach, centreX - reach * 0.75, centreY + reach,
-        centreX + reach, centreY);
+      let glyphColor = active ? theme().toolbarActiveGlyph : theme().toolbarGlyph;
+      drawControlIcon(this.segments[i].icon, centreX, this.y + this.h * 0.34,
+        this.h * 0.38, glyphColor);
+      fillTheme(active ? theme().toolbarActiveLabel : theme().toolbarLabel);
+      textAlign(CENTER, CENTER);
+      fittedTextSize(this.segments[i].label, segmentWidth - 8.0 * this.scale,
+        10.5 * this.scale * PANEL_FONT_SCALE, 8.0 * this.scale);
+      text(this.segments[i].label, centreX, this.y + this.h * 0.76);
     }
-    noStroke();
-  }
-
-  // Полумесяц — область между внешней окружностью и смещённой вырезающей.
-  // Он собирается одной фигурой, а не заливкой поверх: кнопка полупрозрачна,
-  // и «вырезанная» её же цветом долька просвечивала бы машиной за кнопкой.
-  drawCrescent(cx, cy, radius) {
-    let offset = radius * 0.55;
-    let cutRadius = radius * 0.9;
-    // Точка пересечения двух окружностей; по ней находятся углы, на которых
-    // одна дуга переходит в другую.
-    let crossX = (offset * offset + radius * radius - cutRadius * cutRadius) / (2.0 * offset);
-    let crossY = sqrt(max(0.0, radius * radius - crossX * crossX));
-    let outerStart = atan2(crossY, crossX);
-    let cutStart = atan2(crossY, crossX - offset);
-    let steps = 18;
-    beginShape();
-    for (let i = 0; i <= steps; i++) {
-      let angle = lerp(outerStart, TWO_PI - outerStart, i / steps);
-      vertex(cx + radius * cos(angle), cy + radius * sin(angle));
-    }
-    for (let i = 0; i <= steps; i++) {
-      let angle = lerp(TWO_PI - cutStart, cutStart, i / steps);
-      vertex(cx + offset + cutRadius * cos(angle), cy + cutRadius * sin(angle));
-    }
-    endShape(CLOSE);
   }
 
   press(px, py) {
-    if (!this.visible) return false;
-    let radius = this.diameter * 0.5;
-    return dist(px, py, this.x + radius, this.y + radius) <= radius;
+    if (!this.visible || py < this.y || py > this.y + this.h
+        || px < this.x || px > this.x + this.w) return -1;
+    return min(floor((px - this.x) / this.segmentWidth()), this.segments.length - 1);
   }
 }
 
@@ -474,9 +516,7 @@ class ControlPanel {
   manualVectorButtons;
   actionButtons;
   tabButtons;
-  settingsButton;
-  pauseButton;
-  themeButton;
+  toolbar;
 
   allSliders;
   allCheckboxes;
@@ -543,9 +583,13 @@ class ControlPanel {
     this.actionButtons.labelSize = 12.5;
     this.tabButtons = new ButtonRowControl(["Управление", "Визуализация"]);
     this.tabButtons.labelSize = 12.0;
-    this.settingsButton = new IconButtonControl(ICON_SETTINGS);
-    this.pauseButton = new IconButtonControl(ICON_PAUSE);
-    this.themeButton = new IconButtonControl(ICON_SUN);
+    // Тема стоит в полосе, а не только флажком в шторке: на телефоне флажок до
+    // себя прятать не хочется, а переключаться хочется в одно касание.
+    this.toolbar = new ToolbarControl([
+      { icon: ICON_SUN, label: "Тема" },
+      { icon: ICON_PAUSE, label: "Пауза" },
+      { icon: ICON_SETTINGS, label: "Настройки" },
+    ]);
 
     this.allSliders = [
       this.loadSlider, this.voltageSlider, this.frequencySlider, this.currentQSlider,
@@ -585,17 +629,18 @@ class ControlPanel {
     this.actionButtons.labels[0] = simulationPaused ? "Продолжить" : "Пауза";
     this.actionButtons.selectedIndex = simulationPaused ? 0 : -1;
     this.tabButtons.selectedIndex = this.activeTab;
-    this.pauseButton.icon = simulationPaused ? ICON_PLAY : ICON_PAUSE;
-    this.themeButton.icon = isLightTheme() ? ICON_MOON : ICON_SUN;
+    // Солнце и луна показывают тему, в которую кнопка переведёт, а не текущую.
+    this.toolbar.segments[TOOLBAR_THEME].icon = isLightTheme() ? ICON_MOON : ICON_SUN;
+    this.toolbar.segments[TOOLBAR_PAUSE].icon = simulationPaused ? ICON_PLAY : ICON_PAUSE;
+    this.toolbar.segments[TOOLBAR_PAUSE].label = simulationPaused ? "Продолжить" : "Пауза";
+    this.toolbar.activeIndex = simulationPaused ? TOOLBAR_PAUSE : -1;
   }
 
   hideAllControls() {
     for (const slider of this.allSliders) slider.visible = false;
     for (const checkbox of this.allCheckboxes) checkbox.visible = false;
     for (const row of this.allButtonRows) row.visible = false;
-    this.settingsButton.visible = false;
-    this.pauseButton.visible = false;
-    this.themeButton.visible = false;
+    this.toolbar.visible = false;
   }
 
   // -- layout helpers -------------------------------------------------------
@@ -743,38 +788,22 @@ class ControlPanel {
     this.hideAllControls();
     this.items = [];
 
-    // Side by side rather than stacked: a single row fits in the gap the footer
-    // leaves below the machine, where the buttons cover none of the winding.
-    let buttonDiameter = max(TOUCH_TARGET_MINIMUM + 12.0, 56.0 * this.scale);
-    let margin = 16.0 * this.scale;
-    let buttonGap = 12.0 * this.scale;
-    let buttonsY = area.y + area.h
-      - motorViewFooterHeight(motorView.viewScale(area, true), true)
-      - buttonDiameter - margin;
-    let settingsX = area.x + area.w - margin - buttonDiameter;
-    let buttonAdvance = buttonDiameter + buttonGap;
-    this.settingsButton.setBounds(settingsX, buttonsY, buttonDiameter);
-    this.pauseButton.setBounds(settingsX - buttonAdvance, buttonsY, buttonDiameter);
-    // Тема — третья кнопка того же ряда: на телефоне флажок в шторке до неё
-    // прячется, а переключаться хочется, не открывая настройки.
-    this.themeButton.setBounds(settingsX - 2.0 * buttonAdvance, buttonsY, buttonDiameter);
+    // Полоса действий занимает нижнюю часть карточки показаний, которую машина
+    // уже нарисовала: место под неё отведено там же, где считается вся нижняя
+    // карточка, поэтому кнопки не накрывают ни обмотку, ни цифры.
+    let dock = motorViewDockBounds(area, motorView.viewScale(area, true), true);
+    this.toolbar.setBounds(dock.x, dock.toolbarY, dock.w, dock.toolbarHeight, this.scale);
 
     if (!this.sheetOpen) {
       this.sheetTop = area.y + area.h;
-      this.settingsButton.visible = true;
-      this.pauseButton.visible = true;
-      this.themeButton.visible = true;
-      this.themeButton.drawControl(false);
-      this.pauseButton.drawControl(simulationPaused);
-      this.settingsButton.drawControl(false);
+      this.toolbar.visible = true;
+      this.toolbar.drawControl();
       return;
     }
-    // While the sheet is up the buttons would sit on top of its controls, and
-    // both of them are already in it: the tabs hold pause, the scrim and the
-    // handle close it.
-    this.settingsButton.visible = false;
-    this.pauseButton.visible = false;
-    this.themeButton.visible = false;
+    // While the sheet is up the toolbar would sit under its controls, and
+    // everything it does is already in the sheet: the action row holds pause,
+    // the visualisation tab holds the theme, the scrim and the handle close it.
+    this.toolbar.visible = false;
 
     // Lay the sheet out against a zero origin to learn how tall it wants to be,
     // shrinking the rows if the screen cannot give it that, and only then place
@@ -945,18 +974,19 @@ class ControlPanel {
   }
 
   compactMousePressed(px, py) {
-    if (this.settingsButton.press(px, py)) {
-      this.sheetOpen = !this.sheetOpen;
-      return true;
-    }
-    if (this.pauseButton.press(px, py)) {
-      simulationPaused = !simulationPaused;
-      return true;
-    }
-    if (this.themeButton.press(px, py)) {
+    let segment = this.toolbar.press(px, py);
+    if (segment === TOOLBAR_THEME) {
       toggleTheme();
       // Флажок в шторке показывает ту же настройку и должен остаться в такте.
       this.themeCheckbox.checked = isLightTheme();
+      return true;
+    }
+    if (segment === TOOLBAR_PAUSE) {
+      simulationPaused = !simulationPaused;
+      return true;
+    }
+    if (segment === TOOLBAR_SETTINGS) {
+      this.sheetOpen = !this.sheetOpen;
       return true;
     }
     if (!this.sheetOpen) return false;

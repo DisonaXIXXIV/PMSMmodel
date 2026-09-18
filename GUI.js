@@ -228,11 +228,13 @@ class ControlPanel {
     this.speedSlider = new SliderControl("Задание скорости", " об/мин",
       -1000.0, 1000.0, settings.speedReferenceRpm);
     this.speedSlider.showPositiveSign = true;
+    // Ranges bracket the tuning for J = 0.1: below Kp = 4 the step overshoots
+    // visibly, and Ki past 60 trades settling time for a taller first peak.
     this.speedKpSlider = new SliderControl("Kp регулятора скорости", "",
-      0.0, 0.5, settings.speedKp);
-    this.speedKpSlider.decimalPlaces = 3;
+      0.0, 10.0, settings.speedKp);
+    this.speedKpSlider.decimalPlaces = 2;
     this.speedKiSlider = new SliderControl("Ki регулятора скорости", "",
-      0.0, 20.0, settings.speedKi);
+      0.0, 100.0, settings.speedKi);
     this.speedKiSlider.decimalPlaces = 2;
 
     this.speedLoopCheckbox = new CheckboxControl("Контур скорости", settings.speedLoopEnabled);

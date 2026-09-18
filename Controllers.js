@@ -23,8 +23,11 @@ class ControlSettings {
   currentKi = 800.0;
   speedLoopEnabled = false;
   speedReferenceRpm = 0.0;
-  speedKp = 0.30;
-  speedKi = 1.3;
+  // The speed loop acts on torque over inertia, so both gains scale with
+  // MotorParameters.inertia: these are tuned for J = 0.1 and give
+  // wn = 20 rad/s, zeta = 2.3 with the PI zero at Ki/Kp = 4.3 rad/s.
+  speedKp = 5.0;
+  speedKi = 21.67;
 
   showVoltage = true;
   showEmf = true;
@@ -57,8 +60,8 @@ class ControlSettings {
     this.currentKi = 800.0;
     this.speedLoopEnabled = false;
     this.speedReferenceRpm = 0.0;
-    this.speedKp = 0.30;
-    this.speedKi = 1.3;
+    this.speedKp = 5.0;
+    this.speedKi = 21.67;
 
     this.showVoltage = true;
     this.showEmf = true;

@@ -427,17 +427,20 @@ class MotorView {
   }
 
   drawLegendItem(x, y, itemColor, label, uiScale) {
-    // The legend sits with the readout, so it follows uiScale like the rest of
-    // the panel text instead of the motor radius: item spacing is already scaled,
-    // and tying the label to the geometry made it drift out of step with the gaps.
-    let markerY = y + 7.0 * uiScale;
+    // Match the control panel's body text, PANEL_FONT_SCALE included: the motor
+    // side never got that 15 % boost, which left the legend reading small next
+    // to the panel. Deriving the marker and the gap from the label size keeps
+    // the row balanced at whatever that size works out to.
+    let labelSize = 12.5 * uiScale * PANEL_FONT_SCALE;
+    let markerDiameter = labelSize * 0.62;
+    let markerY = y + labelSize * 0.5;
     noStroke();
     fill(itemColor);
-    circle(x + 4.0 * uiScale, markerY, 7.0 * uiScale);
+    circle(x + markerDiameter * 0.5, markerY, markerDiameter);
     fill(159, 174, 195);
     textAlign(LEFT, CENTER);
-    textSize(11.0 * uiScale);
-    text(label, x + 12.0 * uiScale, markerY);
+    textSize(labelSize);
+    text(label, x + markerDiameter + labelSize * 0.35, markerY);
   }
 
   drawReadout(area, state, simulator, uiScale) {

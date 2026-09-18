@@ -1,3 +1,4 @@
+let activeProfile;
 let motorParameters;
 let controlSettings;
 let motor;
@@ -16,7 +17,8 @@ let diagnosticsMode = false;
 const MAXIMUM_PIXEL_DENSITY = 2.0;
 
 function setup() {
-  document.title = "PMSM — визуальная модель синхронной машины";
+  activeProfile = resolveDemoProfile();
+  document.title = activeProfile.documentTitle;
 
   if (new URLSearchParams(window.location.search).has("self-test")) {
     diagnosticsMode = true;
@@ -59,12 +61,16 @@ function setup() {
 
   motorParameters = new MotorParameters();
   controlSettings = new ControlSettings(motorParameters);
+  // Режим выставляется до регуляторов и до панели: и те, и та читают его при
+  // создании.
+  applyDemoProfile(activeProfile, controlSettings);
   motor = new PMSMModel(motorParameters);
   driveController = new DriveController(motorParameters, controlSettings);
   simulator = new FixedStepSimulator(motor, driveController, controlSettings);
   sketchLayout = new SketchLayout();
   motorView = new MotorView(motorParameters, controlSettings);
-  controlPanel = new ControlPanel(motorParameters, controlSettings, driveController);
+  controlPanel = new ControlPanel(motorParameters, controlSettings, driveController,
+    activeProfile);
 }
 
 function draw() {

@@ -506,6 +506,9 @@ class ControlPanel {
   parameters;
   settings;
   controller;
+  // Профиль решает, какие переключатели вообще есть в панели: demo-страница
+  // одного режима обходится без выбора режима и без выбора типа ручного вектора.
+  profile;
   lastArea = new Area();
 
   loadSlider;
@@ -551,10 +554,11 @@ class ControlPanel {
   lastState = null;
   lastSimulator = null;
 
-  constructor(parameters, settings, controller) {
+  constructor(parameters, settings, controller, profile) {
     this.parameters = parameters;
     this.settings = settings;
     this.controller = controller;
+    this.profile = profile === undefined ? demoProfile(PROFILE_FULL) : profile;
 
     this.loadSlider = new SliderControl("Момент нагрузки", " Н·м",
       -parameters.maximumLoadTorque, parameters.maximumLoadTorque, settings.loadTorque);
@@ -703,15 +707,18 @@ class ControlPanel {
     let contentWidth = area.w - 2.0 * padding;
     let y = area.y + 13.0 * scale;
 
-    this.addTitle("Управление PMSM", contentX, y, contentWidth, 21.0 * scale * PANEL_FONT_SCALE);
+    this.addTitle(this.profile.panelTitle, contentX, y, contentWidth,
+      21.0 * scale * PANEL_FONT_SCALE);
     y += 37.0 * scale;
 
-    this.addSection("РЕЖИМ УПРАВЛЕНИЯ", contentX, y, contentWidth, 18.0 * scale);
-    y += 18.0 * scale;
+    if (!this.profile.singleMode) {
+      this.addSection("РЕЖИМ УПРАВЛЕНИЯ", contentX, y, contentWidth, 18.0 * scale);
+      y += 18.0 * scale;
 
-    this.modeButtons.setBounds(contentX, y, contentWidth, 31.0 * scale, 4.0 * scale, scale);
-    this.addControl(this.modeButtons);
-    y += 31.0 * scale + 10.0 * scale;
+      this.modeButtons.setBounds(contentX, y, contentWidth, 31.0 * scale, 4.0 * scale, scale);
+      this.addControl(this.modeButtons);
+      y += 31.0 * scale + 10.0 * scale;
+    }
 
     this.addSlider(this.loadSlider, contentX, y, contentWidth, 39.0 * scale);
     y += 43.0 * scale;
@@ -754,12 +761,16 @@ class ControlPanel {
     let sliderAdvance = sliderHeight + 4.0 * scale;
 
     if (this.settings.mode == MODE_MANUAL) {
-      this.addSection("РУЧНОЕ ЗАДАНИЕ", contentX, y, contentWidth, 19.0 * scale);
-      y += 19.0 * scale;
-      this.manualVectorButtons.setBounds(contentX, y, contentWidth,
-        compact ? rowHeight : 30.0 * scale, 5.0 * scale, scale);
-      this.addControl(this.manualVectorButtons);
-      y += (compact ? rowHeight : 30.0 * scale) + 9.0 * scale;
+      // Заголовок раздела стоит над выбором тока и напряжения. Там, где выбора
+      // нет, о нём уже сказал заголовок панели, и остаётся одна подсказка.
+      if (!this.profile.singleManualVector) {
+        this.addSection("РУЧНОЕ ЗАДАНИЕ", contentX, y, contentWidth, 19.0 * scale);
+        y += 19.0 * scale;
+        this.manualVectorButtons.setBounds(contentX, y, contentWidth,
+          compact ? rowHeight : 30.0 * scale, 5.0 * scale, scale);
+        this.addControl(this.manualVectorButtons);
+        y += (compact ? rowHeight : 30.0 * scale) + 9.0 * scale;
+      }
       // The same sentence wraps to three lines in a phone-width column, and a
       // hint clipped halfway through is worse than no hint at all.
       let hintHeight = (compact ? 78.0 : 48.0) * scale;
@@ -874,11 +885,13 @@ class ControlPanel {
     this.sheetHeaderBottom = y;
 
     if (this.activeTab === TAB_CONTROL) {
-      this.addSection("РЕЖИМ УПРАВЛЕНИЯ", contentX, y, contentWidth, 18.0 * scale);
-      y += 18.0 * scale;
-      this.modeButtons.setBounds(contentX, y, contentWidth, rowHeight, 5.0 * scale, scale);
-      this.addControl(this.modeButtons);
-      y += rowHeight + 12.0 * scale;
+      if (!this.profile.singleMode) {
+        this.addSection("РЕЖИМ УПРАВЛЕНИЯ", contentX, y, contentWidth, 18.0 * scale);
+        y += 18.0 * scale;
+        this.modeButtons.setBounds(contentX, y, contentWidth, rowHeight, 5.0 * scale, scale);
+        this.addControl(this.modeButtons);
+        y += rowHeight + 12.0 * scale;
+      }
       this.addSlider(this.loadSlider, contentX, y, contentWidth, sliderHeight);
       y += sliderHeight + 4.0 * scale;
       y = this.layoutModeControls(contentX, y, contentWidth, sliderHeight, rowHeight, true);

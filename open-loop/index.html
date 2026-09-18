@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>PMSM — разомкнутое управление</title>
+    <link rel="stylesheet" href="../style.css">
+  </head>
+  <body>
+    <main id="app"></main>
+
+    <!-- Страница одного режима. Код тот же, что и у полной программы в корне
+         проекта: отличается только профиль, объявленный ниже. Он должен быть
+         задан до PMSMmodel.js, который читает его в setup(). Профили описаны
+         в ../Presets.js. -->
+    <script>window.PMSM_PROFILE = "open-loop";</script>
+
+    <script src="https://cdn.jsdelivr.net/npm/p5@2.3.3/lib/p5.min.js"></script>
+    <script src="../Theme.js"></script>
+    <script src="../MathUtils.js"></script>
+    <script src="../MotorModel.js"></script>
+    <script src="../Controllers.js"></script>
+    <script src="../Presets.js"></script>
+    <script src="../Simulation.js"></script>
+    <script src="../MotorView.js"></script>
+    <script src="../GUI.js"></script>
+    <script src="../Diagnostics.js"></script>
+    <script src="../PMSMmodel.js"></script>
+  </body>
+</html>

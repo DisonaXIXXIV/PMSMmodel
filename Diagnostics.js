@@ -12,6 +12,7 @@ function runSimulationDiagnostics() {
   testNegativeSpeedLoopStep();
   testCurrentAntiWindup();
   testGuiParameterReset();
+  testDemoProfiles();
   testThemePalettes();
 
   if (diagnosticFailures > 0) {
@@ -207,6 +208,77 @@ function testGuiParameterReset() {
     diagnosticFailures++;
     console.log("FAIL: Reset control-selection/checkbox behavior");
   }
+}
+
+// Каждый профиль — это отдельная страница демонстрации, и ошибка в нём
+// проявилась бы только открытой ссылкой. Проверяем состав профилей и то, что
+// профиль доводит свой режим до настроек, до регуляторов и переживает сброс.
+function testDemoProfiles() {
+  let requiredKeys = ["name", "documentTitle", "panelTitle", "mode", "manualVectorType",
+    "singleMode", "singleManualVector"];
+  let names = Object.keys(DEMO_PROFILES);
+  let failures = 0;
+  let singleModes = [];
+
+  for (const name of names) {
+    let profile = DEMO_PROFILES[name];
+    for (const key of requiredKeys) {
+      if (!(key in profile)) {
+        failures++;
+        console.log("FAIL: profile " + name + " is missing " + key);
+      }
+    }
+    // Профиль называет сам себя, чтобы имя из ссылки и имя в записи не разошлись.
+    if (profile.name !== name) {
+      failures++;
+      console.log("FAIL: profile " + name + " calls itself " + profile.name);
+    }
+
+    let testParameters = new MotorParameters();
+    let testSettings = new ControlSettings(testParameters);
+    applyDemoProfile(profile, testSettings);
+    let testController = new DriveController(testParameters, testSettings);
+    if (testSettings.mode !== profile.mode
+        || testSettings.manualVectorType !== profile.manualVectorType
+        || testController.activeMode !== profile.mode
+        || testController.activeManualVectorType !== profile.manualVectorType) {
+      failures++;
+      console.log("FAIL: profile " + name + " does not reach the settings and the controller");
+    }
+    // Сброс сохраняет режим, поэтому кнопка «Сброс» не выводит страницу из её
+    // режима — иначе на demo-странице его было бы не вернуть.
+    testSettings.resetGuiParametersPreservingMode();
+    if (testSettings.mode !== profile.mode
+        || testSettings.manualVectorType !== profile.manualVectorType) {
+      failures++;
+      console.log("FAIL: reset drops profile " + name + " out of its mode");
+    }
+    if (profile.singleMode) singleModes.push(profile.mode);
+  }
+
+  // Опечатка в ссылке или в window.PMSM_PROFILE не должна давать пустую страницу.
+  if (demoProfile("нет-такого-профиля") !== DEMO_PROFILES[PROFILE_FULL]) {
+    failures++;
+    console.log("FAIL: an unknown profile name does not fall back to the full program");
+  }
+  if (!DEMO_PROFILES[PROFILE_FULL] || DEMO_PROFILES[PROFILE_FULL].singleMode) {
+    failures++;
+    console.log("FAIL: the full profile must keep the mode selector");
+  }
+  // Все режимы модели показаны хотя бы одной отдельной страницей.
+  for (const mode of [MODE_MANUAL, MODE_OPEN_LOOP, MODE_VECTOR]) {
+    if (!singleModes.includes(mode)) {
+      failures++;
+      console.log("FAIL: no single-mode profile demonstrates mode " + mode);
+    }
+  }
+
+  if (failures > 0) {
+    diagnosticFailures += failures;
+    return;
+  }
+  console.log("PASS: " + names.length + " demo profiles are consistent ("
+    + names.join(", ") + ")");
 }
 
 function runDiagnosticSteps(testMotor, testController,

@@ -74,7 +74,7 @@ function draw() {
   simulator.advanceFrame(simulationPaused);
   motorView.updateReferenceFrame(motor.state);
 
-  background(16, 20, 28);
+  backgroundTheme(theme().appBackground);
   motorView.draw(sketchLayout.motorArea, motor, driveController, simulator, sketchLayout.compact);
   controlPanel.draw(sketchLayout.panelArea, motor, simulator, sketchLayout.compact);
 }
@@ -136,6 +136,10 @@ function keyPressed() {
     simulationPaused = !simulationPaused;
   } else if (key === "r" || key === "R" || key === "к" || key === "К") {
     resetSimulation();
+  } else if (key === "t" || key === "T" || key === "е" || key === "Е") {
+    toggleTheme();
+    // Страница самотестирования обходится без панели, а тему меняет так же.
+    if (controlPanel) controlPanel.syncWidgetsFromSettings();
   }
 }
 

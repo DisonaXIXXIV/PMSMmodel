@@ -12,6 +12,7 @@ function runSimulationDiagnostics() {
   testNegativeSpeedLoopStep();
   testCurrentAntiWindup();
   testGuiParameterReset();
+  testThemePalettes();
 
   if (diagnosticFailures > 0) {
     console.log("PMSM diagnostics failed: " + diagnosticFailures);
@@ -221,6 +222,49 @@ function runDiagnosticStep(testMotor, testController,
   testController.update(testMotor.state, timeStep);
   testMotor.step(testController.voltageCommand.x, testController.voltageCommand.y,
     testSettings.loadTorque, timeStep);
+}
+
+// Тема добавляется отдельной палитрой, и забытый в ней ключ проявился бы
+// невидимой заливкой где-нибудь в редком режиме. Проверяем состав палитр
+// целиком: набор ключей у всех тем одинаковый, а запись — [r, g, b] или
+// [r, g, b, a] в допустимых пределах.
+function testThemePalettes() {
+  let names = Object.keys(THEME_PALETTES);
+  let referenceName = names[0];
+  let referenceKeys = Object.keys(THEME_PALETTES[referenceName]).sort();
+  let failures = 0;
+
+  for (const name of names) {
+    let keys = Object.keys(THEME_PALETTES[name]).sort();
+    for (const key of referenceKeys) {
+      if (!keys.includes(key)) {
+        failures++;
+        console.log("FAIL: theme " + name + " is missing colour " + key);
+      }
+    }
+    for (const key of keys) {
+      if (!referenceKeys.includes(key)) {
+        failures++;
+        console.log("FAIL: theme " + name + " has colour " + key
+          + " that " + referenceName + " lacks");
+      }
+      let entry = THEME_PALETTES[name][key];
+      let valid = Array.isArray(entry) && (entry.length === 3 || entry.length === 4)
+        && entry.every((channel) => typeof channel === "number"
+          && channel >= 0 && channel <= 255);
+      if (!valid) {
+        failures++;
+        console.log("FAIL: theme " + name + ", colour " + key + " is not [r, g, b(, a)]");
+      }
+    }
+  }
+
+  if (failures > 0) {
+    diagnosticFailures += failures;
+    return;
+  }
+  console.log("PASS: themes define the same " + referenceKeys.length
+    + " colours (" + names.join(", ") + ")");
 }
 
 function diagnosticNear(name, actual, expected, tolerance) {

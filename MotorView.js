@@ -105,7 +105,7 @@ class MotorView {
     let state = motor.state;
 
     noStroke();
-    fill(18, 22, 30);
+    fillTheme(theme().motorBackground);
     rect(area.x, area.y, area.w, area.h);
 
     let scale = this.viewScale(area, compact);
@@ -128,7 +128,7 @@ class MotorView {
     let windingNote = "ψf = " + nf(this.parameters.magnetFlux, 1, 2)
       + " Вб; 18 пазов, q = 3;  • — из плоскости, × — в плоскость";
 
-    fill(235, 241, 248);
+    fillTheme(theme().motorTitle);
     textAlign(LEFT, TOP);
     if (compact) {
       // The title is the widest fixed string on the screen; on a phone it has
@@ -140,12 +140,12 @@ class MotorView {
     }
     text("Синхронная машина с постоянными магнитами", x, area.y + (compact ? 12.0 : 13.0) * scale);
 
-    fill(130, 147, 169);
+    fillTheme(theme().motorSubtitle);
     textSize(11.5 * scale);
     text(frameName, area.x + (compact ? 16.0 : 18.0) * scale,
       area.y + (compact ? 38.0 : 41.0) * scale);
 
-    fill(103, 119, 141);
+    fillTheme(theme().motorNote);
     textSize(10.5 * scale);
     if (compact) {
       text(windingNote, area.x + 16.0 * scale, area.y + 56.0 * scale,
@@ -161,9 +161,9 @@ class MotorView {
 
   drawStator(state) {
     noStroke();
-    fill(64, 73, 87);
+    fillTheme(theme().statorYoke);
     circle(this.centerX, this.centerY, this.outerRadius * 2.0);
-    fill(30, 36, 47);
+    fillTheme(theme().statorBore);
     circle(this.centerX, this.centerY, this.statorInnerRadius * 2.0);
 
     let speedFade = this.settings.lockDqFrame
@@ -178,15 +178,15 @@ class MotorView {
       let angle = statorAngle + TWO_PI * slot / slotCount;
       let inner = this.statorInnerRadius + this.outerRadius * 0.025;
       let outer = this.outerRadius * 0.95;
-      stroke(31, 38, 49, 210.0 * speedFade);
+      strokeTheme(theme().statorSlot, 210.0 * speedFade);
       strokeWeight(max(1.0, this.outerRadius * 0.026));
       line(this.pointX(angle, inner), this.pointY(angle, inner), this.pointX(angle, outer), this.pointY(angle, outer));
 
       let belt = slot / 3;
       let phase = beltPhases[belt];
       let conductorDirection = belt % 2 == 0 ? 1 : -1;
-      let phaseColor = phase == 0 ? color(225, 92, 83)
-        : (phase == 1 ? color(91, 193, 126) : color(83, 139, 224));
+      let phaseColor = phase == 0 ? themeColor(theme().phaseA)
+        : (phase == 1 ? themeColor(theme().phaseB) : themeColor(theme().phaseC));
       this.drawCoilSide(angle, phaseColor, conductorDirection, speedFade);
 
       if (slot % 3 == 1) {
@@ -201,7 +201,7 @@ class MotorView {
     }
 
     noFill();
-    stroke(112, 125, 145);
+    strokeTheme(theme().statorOutline);
     strokeWeight(max(1.0, this.outerRadius * 0.009));
     circle(this.centerX, this.centerY, this.outerRadius * 2.0);
     circle(this.centerX, this.centerY, this.statorInnerRadius * 2.0);
@@ -214,7 +214,7 @@ class MotorView {
 
     stroke(red(phaseColor), green(phaseColor), blue(phaseColor), 225.0 * fade);
     strokeWeight(max(1.0, this.outerRadius * 0.008));
-    fill(39, 45, 57, 230.0 * fade);
+    fillTheme(theme().coilMarkerFill, 230.0 * fade);
     circle(markerX, markerY, markerSize);
 
     if (conductorDirection > 0) {
@@ -242,20 +242,20 @@ class MotorView {
     translate(this.centerX, this.centerY);
     rotate(-rotorScreenAngle);
     noStroke();
-    fill(218, 75, 70, 255.0 * movingFade);
+    fillTheme(theme().rotorNorth, 255.0 * movingFade);
     arc(0.0, 0.0, this.rotorRadius * 2.0, this.rotorRadius * 2.0,
       -HALF_PI, HALF_PI, PIE);
-    fill(67, 119, 211, 255.0 * movingFade);
+    fillTheme(theme().rotorSouth, 255.0 * movingFade);
     arc(0.0, 0.0, this.rotorRadius * 2.0, this.rotorRadius * 2.0,
       HALF_PI, PI + HALF_PI, PIE);
     pop();
 
     noFill();
-    stroke(213, 222, 234, 210);
+    strokeTheme(theme().rotorOutline);
     strokeWeight(max(1.2, this.outerRadius * 0.012));
     circle(this.centerX, this.centerY, this.rotorRadius * 2.0);
     noStroke();
-    fill(229, 235, 242, 245.0 * movingFade);
+    fillTheme(theme().rotorPoleLabel, 245.0 * movingFade);
     textAlign(CENTER, CENTER);
     textSize(max(10.0, this.outerRadius * 0.075));
     text("N", this.pointX(rotorScreenAngle, this.rotorRadius * 0.58),
@@ -264,9 +264,9 @@ class MotorView {
       this.pointY(rotorScreenAngle + PI, this.rotorRadius * 0.58));
 
     noStroke();
-    fill(19, 24, 32);
+    fillTheme(theme().shaftOuter);
     circle(this.centerX, this.centerY, this.rotorRadius * 0.14);
-    fill(151, 164, 183);
+    fillTheme(theme().shaftInner);
     circle(this.centerX, this.centerY, this.rotorRadius * 0.055);
 
   }
@@ -274,14 +274,14 @@ class MotorView {
   drawAxes(state) {
     let axisRadius = this.statorInnerRadius * 0.94;
     if (this.settings.showAlphaBetaAxes) {
-      this.drawAxis(this.screenAngle(0.0), axisRadius, color(112, 127, 147, 190), "α", "");
-      this.drawAxis(this.screenAngle(HALF_PI), axisRadius, color(112, 127, 147, 190), "β", "");
+      this.drawAxis(this.screenAngle(0.0), axisRadius, themeColor(theme().axisAlphaBeta), "α", "");
+      this.drawAxis(this.screenAngle(HALF_PI), axisRadius, themeColor(theme().axisAlphaBeta), "β", "");
     }
     if (this.settings.showDqAxes || this.settings.lockDqFrame) {
       this.drawAxis(this.screenAngle(state.electricalAngle), axisRadius * 0.91,
-        color(246, 157, 68, 225), "d", "");
+        themeColor(theme().axisD), "d", "");
       this.drawAxis(this.screenAngle(state.electricalAngle + HALF_PI), axisRadius * 0.91,
-        color(180, 116, 235, 225), "q", "");
+        themeColor(theme().axisQ), "q", "");
     }
   }
 
@@ -308,19 +308,19 @@ class MotorView {
       this.currentVectorMaximumLength());
     if (this.settings.showAlphaBetaProjections) {
       this.drawProjectionGuides(this.screenAngle(0.0), state.currentAlpha * scale,
-        state.currentBeta * scale, color(70, 204, 217, 90));
+        state.currentBeta * scale, themeColor(theme().guideAlphaBeta));
       this.drawSignedComponent(this.screenAngle(0.0), state.currentAlpha * scale,
-        color(70, 204, 217, 135), "iα");
+        themeColor(theme().componentAlphaBeta), "iα");
       this.drawSignedComponent(this.screenAngle(HALF_PI), state.currentBeta * scale,
-        color(70, 204, 217, 135), "iβ");
+        themeColor(theme().componentAlphaBeta), "iβ");
     }
     if (this.settings.showDqProjections) {
       this.drawProjectionGuides(this.screenAngle(state.electricalAngle), state.currentD * scale,
-        state.currentQ * scale, color(220, 150, 235, 100));
+        state.currentQ * scale, themeColor(theme().guideDq));
       this.drawSignedComponent(this.screenAngle(state.electricalAngle), state.currentD * scale,
-        color(246, 157, 68, 190), "id");
+        themeColor(theme().componentD), "id");
       this.drawSignedComponent(this.screenAngle(state.electricalAngle + HALF_PI), state.currentQ * scale,
-        color(180, 116, 235, 190), "iq");
+        themeColor(theme().componentQ), "iq");
     }
   }
 
@@ -329,26 +329,26 @@ class MotorView {
       if (this.settings.manualVectorType == MANUAL_VECTOR_CURRENT) {
         this.drawPhysicalVector(this.settings.manualCurrentAlpha, this.settings.manualCurrentBeta,
           this.parameters.maximumCurrent, this.currentVectorMaximumLength(),
-          color(73, 220, 232, 90), "i*");
+          themeColor(theme().vectorCurrentReference), "i*");
       } else {
         this.drawPhysicalVector(this.settings.manualVoltageAlpha, this.settings.manualVoltageBeta,
           MANUAL_MAXIMUM_VOLTAGE, this.statorInnerRadius * 0.91,
-          color(247, 205, 74, 105), "u*");
+          themeColor(theme().vectorVoltageReference), "u*");
       }
     }
     this.drawPhysicalVector(state.currentAlpha, state.currentBeta, this.parameters.maximumCurrent,
-      this.currentVectorMaximumLength(), color(73, 220, 232), "i");
+      this.currentVectorMaximumLength(), themeColor(theme().vectorCurrent), "i");
     if (this.settings.showVoltage) {
       let voltageScaleMaximum = this.settings.mode == MODE_MANUAL
           && this.settings.manualVectorType == MANUAL_VECTOR_VOLTAGE
         ? MANUAL_MAXIMUM_VOLTAGE
         : this.parameters.maximumVoltage;
       this.drawPhysicalVector(state.voltageAlpha, state.voltageBeta, voltageScaleMaximum,
-        this.statorInnerRadius * 0.91, color(247, 205, 74), "u");
+        this.statorInnerRadius * 0.91, themeColor(theme().vectorVoltage), "u");
     }
     if (this.settings.showEmf) {
       this.drawPhysicalVector(state.emfAlpha, state.emfBeta, this.parameters.maximumVoltage,
-        this.statorInnerRadius * 0.86, color(236, 102, 190), "E");
+        this.statorInnerRadius * 0.86, themeColor(theme().vectorEmf), "E");
     }
   }
 
@@ -434,9 +434,9 @@ class MotorView {
 
   drawTorqueArcs(state) {
     this.drawTorqueArc(state.electromagneticTorque, this.outerRadius * 1.08,
-      color(75, 205, 126, 225));
+      themeColor(theme().torqueMotor));
     this.drawTorqueArc(-state.loadTorque, this.outerRadius * 1.17,
-      color(241, 146, 71, 225));
+      themeColor(theme().torqueLoad));
   }
 
   drawTorqueArc(torque, radius, arcColor) {
@@ -478,11 +478,12 @@ class MotorView {
 
   drawLegend(area, scale, compact) {
     let entries = [
-      [color(73, 220, 232), "ток i"],
-      [color(247, 205, 74), "напряжение u"],
-      [color(236, 102, 190), "ЭДС E"],
-      [color(75, 205, 126), "Mдв"],
-      [color(241, 146, 71), "Mнагр"],
+      [themeColor(theme().vectorCurrent), "ток i"],
+      [themeColor(theme().vectorVoltage), "напряжение u"],
+      [themeColor(theme().vectorEmf), "ЭДС E"],
+      // Дуги моментов полупрозрачны, а в легенде те же цвета нужны плотными.
+      [themeColor(theme().torqueMotor, 255), "Mдв"],
+      [themeColor(theme().torqueLoad, 255), "Mнагр"],
     ];
     let rows = motorViewLegendRows(compact);
     let available = area.w - 34.0 * scale;
@@ -528,7 +529,7 @@ class MotorView {
     noStroke();
     fill(itemColor);
     circle(x + markerDiameter * 0.5, markerY, markerDiameter);
-    fill(159, 174, 195);
+    fillTheme(theme().legendLabel);
     textAlign(LEFT, CENTER);
     textSize(labelSize);
     text(label, x + markerDiameter + labelSize * 0.35, markerY);
@@ -540,7 +541,7 @@ class MotorView {
     let readoutHeight = motorViewReadoutHeight(scale, compact);
     let y = area.y + area.h - MOTOR_READOUT_BOTTOM_MARGIN * scale - readoutHeight;
     noStroke();
-    fill(23, 29, 39);
+    fillTheme(theme().readoutCard);
     rect(x, y, w, readoutHeight, 7.0 * scale);
 
     let speed = "n = " + formatSignedNumber(rpmFromRadians(state.mechanicalSpeed), 0) + " об/мин";
@@ -551,7 +552,7 @@ class MotorView {
     let voltage = "|u| = " + nf(sqrt(state.voltageAlpha * state.voltageAlpha
       + state.voltageBeta * state.voltageBeta), 1, 1) + " В";
 
-    fill(194, 205, 220);
+    fillTheme(theme().readoutText);
     textAlign(LEFT, TOP);
     if (compact) {
       // Six values will not sit on two lines at this width, and shrinking them
@@ -572,7 +573,7 @@ class MotorView {
       text(currentD + "     " + currentQ + "     " + voltage, x + 11.0 * scale, y + 34.0 * scale);
     }
     if (simulationPaused) {
-      fill(245, 177, 80);
+      fillTheme(theme().pausedMark);
       textAlign(RIGHT, TOP);
       textSize((compact ? 12.5 : 11.0) * scale);
       text("ПАУЗА", x + w - 10.0 * scale, y + 9.0 * scale);

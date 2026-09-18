@@ -21,7 +21,7 @@ Object.assign(globalThis, {
 });
 
 const root = path.resolve(__dirname, "..");
-for (const file of ["MathUtils.js", "MotorModel.js", "Controllers.js", "Diagnostics.js"]) {
+for (const file of ["Theme.js", "MathUtils.js", "MotorModel.js", "Controllers.js", "Diagnostics.js"]) {
   const source = fs.readFileSync(path.join(root, file), "utf8");
   vm.runInThisContext(source, { filename: file });
 }

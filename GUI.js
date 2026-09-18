@@ -152,7 +152,7 @@ class SliderControl {
   drawControl() {
     if (!this.visible) return;
 
-    fill(205, 214, 228);
+    fillTheme(theme().sliderLabel);
     textAlign(LEFT, TOP);
     textSize(12.5 * this.scale * PANEL_FONT_SCALE);
     text(this.label, this.x, this.y);
@@ -160,14 +160,14 @@ class SliderControl {
     text(this.formatValue(this.value) + this.suffix, this.x + this.w, this.y);
 
     let trackY = this.trackY();
-    stroke(66, 77, 94);
+    strokeTheme(theme().sliderTrack);
     strokeWeight(4.0 * this.scale);
     line(this.x, trackY, this.x + this.w, trackY);
     let fraction = (this.value - this.minimum) / (this.maximum - this.minimum);
-    stroke(75, 184, 226);
+    strokeTheme(theme().sliderFill);
     line(this.x, trackY, this.x + this.w * fraction, trackY);
     noStroke();
-    fill(this.dragging ? color(130, 220, 255) : color(228, 239, 247));
+    fillTheme(this.dragging ? theme().sliderHandleActive : theme().sliderHandle);
     circle(this.x + this.w * fraction, trackY, this.handleDiameter());
   }
 
@@ -239,20 +239,20 @@ class CheckboxControl {
     // growing the row to a touch target grows the hit area and not the text.
     let boxSize = 15.0 * this.scale;
     let boxY = this.y + (this.h - boxSize) * 0.5;
-    stroke(105, 122, 145);
+    strokeTheme(theme().checkboxBorder);
     strokeWeight(1.2 * this.scale);
-    fill(28, 34, 45);
+    fillTheme(theme().checkboxFill);
     rect(this.x, boxY, boxSize, boxSize, 3.0 * this.scale);
     if (this.checked) {
       noStroke();
-      fill(68, 190, 226);
+      fillTheme(theme().checkboxMark);
       rect(this.x + 3.0 * this.scale, boxY + 3.0 * this.scale,
         boxSize - 6.0 * this.scale, boxSize - 6.0 * this.scale, 2.0 * this.scale);
     }
     // The box outline is still set as the stroke; without clearing it the label
     // is drawn outlined and reads as bold next to the checked ones.
     noStroke();
-    fill(211, 220, 232);
+    fillTheme(theme().checkboxLabel);
     textAlign(LEFT, CENTER);
     textSize(12.0 * this.scale * PANEL_FONT_SCALE);
     text(this.label, this.x + 22.0 * this.scale, this.y, this.w - 22.0 * this.scale, this.h);
@@ -308,9 +308,9 @@ class ButtonRowControl {
     for (let i = 0; i < this.labels.length; i++) {
       let selected = this.selectedIndex === i;
       noStroke();
-      fill(selected ? color(49, 142, 178) : color(38, 46, 60));
+      fillTheme(selected ? theme().buttonFillSelected : theme().buttonFill);
       rect(this.buttonX(i), this.y, buttonWidth, this.h, 5.0 * this.scale);
-      fill(selected ? color(247) : color(180, 192, 210));
+      fillTheme(selected ? theme().buttonLabelSelected : theme().buttonLabel);
       textAlign(CENTER, CENTER);
       let size = fittedTextSize(this.labels[i], buttonWidth - 10.0 * this.scale,
         this.labelSize * this.scale * PANEL_FONT_SCALE, 8.0 * this.scale);
@@ -357,9 +357,9 @@ class IconButtonControl {
     if (!this.visible) return;
     let radius = this.diameter * 0.5;
     noStroke();
-    fill(highlighted ? color(158, 105, 47) : color(40, 49, 64, 235));
+    fillTheme(highlighted ? theme().iconButtonFillActive : theme().iconButtonFill);
     circle(this.x + radius, this.y + radius, this.diameter);
-    stroke(226, 233, 242);
+    strokeTheme(theme().iconButtonGlyph);
     strokeWeight(this.diameter * 0.055);
     noFill();
     let centreX = this.x + radius;
@@ -373,9 +373,9 @@ class IconButtonControl {
         let lineY = centreY + row * spacing;
         line(centreX - reach, lineY, centreX + reach, lineY);
         noStroke();
-        fill(226, 233, 242);
+        fillTheme(theme().iconButtonGlyph);
         circle(centreX + row * reach * 0.55, lineY, this.diameter * 0.13);
-        stroke(226, 233, 242);
+        strokeTheme(theme().iconButtonGlyph);
         noFill();
       }
     } else if (this.icon === ICON_PAUSE) {
@@ -385,7 +385,7 @@ class IconButtonControl {
       line(centreX + barOffset, centreY - barHeight, centreX + barOffset, centreY + barHeight);
     } else {
       noStroke();
-      fill(226, 233, 242);
+      fillTheme(theme().iconButtonGlyph);
       let reach = this.diameter * 0.17;
       triangle(centreX - reach * 0.75, centreY - reach, centreX - reach * 0.75, centreY + reach,
         centreX + reach, centreY);
@@ -424,6 +424,7 @@ class ControlPanel {
   alphaBetaProjectionCheckbox;
   dqProjectionCheckbox;
   lockDqCheckbox;
+  themeCheckbox;
 
   modeButtons;
   manualVectorButtons;
@@ -486,6 +487,9 @@ class ControlPanel {
     this.alphaBetaProjectionCheckbox = new CheckboxControl("Проекции iα, iβ", settings.showAlphaBetaProjections);
     this.dqProjectionCheckbox = new CheckboxControl("Проекции id, iq", settings.showDqProjections);
     this.lockDqCheckbox = new CheckboxControl("Зафиксировать оси d–q", settings.lockDqFrame);
+    // Тема хранится не в настройках модели, а в Theme.js, поэтому флажок
+    // читает её оттуда и сбросом параметров не затрагивается.
+    this.themeCheckbox = new CheckboxControl("Светлая тема", isLightTheme());
 
     this.modeButtons = new ButtonRowControl(["Ручной", "Разомкнутый", "Векторный"]);
     this.manualVectorButtons = new ButtonRowControl(["Вектор тока", "Вектор напряжения"]);
@@ -503,7 +507,8 @@ class ControlPanel {
     ];
     this.allCheckboxes = [
       this.speedLoopCheckbox, this.voltageCheckbox, this.emfCheckbox, this.alphaBetaAxesCheckbox,
-      this.dqAxesCheckbox, this.alphaBetaProjectionCheckbox, this.dqProjectionCheckbox, this.lockDqCheckbox
+      this.dqAxesCheckbox, this.alphaBetaProjectionCheckbox, this.dqProjectionCheckbox, this.lockDqCheckbox,
+      this.themeCheckbox
     ];
     this.allButtonRows = [
       this.modeButtons, this.manualVectorButtons, this.actionButtons, this.tabButtons
@@ -513,7 +518,8 @@ class ControlPanel {
   visualisationCheckboxes() {
     return [
       this.voltageCheckbox, this.emfCheckbox, this.alphaBetaAxesCheckbox, this.dqAxesCheckbox,
-      this.alphaBetaProjectionCheckbox, this.dqProjectionCheckbox, this.lockDqCheckbox
+      this.alphaBetaProjectionCheckbox, this.dqProjectionCheckbox, this.lockDqCheckbox,
+      this.themeCheckbox
     ];
   }
 
@@ -571,9 +577,9 @@ class ControlPanel {
     this.layoutDesktop(area);
 
     noStroke();
-    fill(23, 28, 38);
+    fillTheme(theme().panelBackground);
     rect(area.x, area.y, area.w, area.h);
-    fill(47, 57, 73);
+    fillTheme(theme().panelDivider);
     rect(area.x, area.y, max(1.0, this.scale), area.h);
     this.renderItems();
   }
@@ -617,7 +623,10 @@ class ControlPanel {
       // it yields halves, which staggered the two columns by half a row.
       let row = floor(i / 2);
       let column = i % 2;
-      let checkWidth = i === visualChecks.length - 1 ? contentWidth : columnWidth;
+      // Полная ширина нужна только последнему флажку, если он остался один в
+      // строке; иначе он выехал бы за правый край панели из второй колонки.
+      let checkWidth = i === visualChecks.length - 1 && column === 0
+        ? contentWidth : columnWidth;
       visualChecks[i].setBounds(contentX + column * (columnWidth + columnGap),
         y + row * 25.0 * scale, checkWidth, 21.0 * scale, scale);
       this.addControl(visualChecks[i]);
@@ -729,12 +738,12 @@ class ControlPanel {
     this.layoutSheet(area, rowFit, this.sheetTop);
 
     noStroke();
-    fill(8, 11, 16, 190);
+    fillTheme(theme().sheetScrim);
     rect(area.x, area.y, area.w, area.h);
-    fill(23, 28, 38);
+    fillTheme(theme().sheetBackground);
     let corner = 18.0 * this.scale;
     rect(area.x, this.sheetTop, area.w, sheetHeight, corner, corner, 0.0, 0.0);
-    fill(84, 97, 117);
+    fillTheme(theme().sheetHandle);
     let handleWidth = 44.0 * this.scale;
     rect(area.x + (area.w - handleWidth) * 0.5, this.sheetTop + 8.0 * this.scale,
       handleWidth, 4.0 * this.scale, 2.0 * this.scale);
@@ -795,13 +804,13 @@ class ControlPanel {
     for (const item of this.items) {
       switch (item.kind) {
         case "title":
-          fill(237, 242, 249);
+          fillTheme(theme().panelTitle);
           textAlign(LEFT, TOP);
           fittedTextSize(item.label, item.w, item.size, 12.0 * this.scale);
           text(item.label, item.x, item.y);
           break;
         case "section":
-          fill(145, 159, 180);
+          fillTheme(theme().panelSection);
           textAlign(LEFT, TOP);
           textSize(11.5 * this.scale * PANEL_FONT_SCALE);
           text(item.label, item.x, item.y);
@@ -822,7 +831,7 @@ class ControlPanel {
   drawStatusCard(x, y, w, h) {
     let state = this.lastState;
     noStroke();
-    fill(28, 35, 47);
+    fillTheme(theme().statusCard);
     rect(x, y, w, h, 7.0 * this.scale);
     let third = w / 3.0;
     this.drawStatusValue(x + 10.0 * this.scale, y + 8.0 * this.scale,
@@ -841,20 +850,20 @@ class ControlPanel {
   }
 
   drawStatusValue(x, y, caption, value) {
-    fill(122, 139, 162);
+    fillTheme(theme().statusCaption);
     textAlign(LEFT, TOP);
     textSize(9.5 * this.scale * PANEL_FONT_SCALE);
     text(caption, x, y);
-    fill(232, 238, 247);
+    fillTheme(theme().statusValue);
     textSize(13.0 * this.scale * PANEL_FONT_SCALE);
     text(value, x, y + 19.0 * this.scale);
   }
 
   drawManualHint(x, y, w, h) {
     noStroke();
-    fill(29, 44, 55);
+    fillTheme(theme().hintCard);
     rect(x, y, w, h, 6.0 * this.scale);
-    fill(155, 207, 226);
+    fillTheme(theme().hintText);
     textAlign(LEFT, CENTER);
     textSize(11.5 * this.scale * PANEL_FONT_SCALE);
     let vectorName = this.settings.manualVectorType == MANUAL_VECTOR_CURRENT
@@ -990,6 +999,9 @@ class ControlPanel {
     this.settings.showAlphaBetaProjections = this.alphaBetaProjectionCheckbox.checked;
     this.settings.showDqProjections = this.dqProjectionCheckbox.checked;
     this.settings.lockDqFrame = this.lockDqCheckbox.checked;
+
+    let requestedTheme = this.themeCheckbox.checked ? THEME_LIGHT : THEME_DARK;
+    if (requestedTheme !== currentThemeName()) setTheme(requestedTheme);
   }
 
   syncWidgetsFromSettings() {
@@ -1011,5 +1023,6 @@ class ControlPanel {
     this.alphaBetaProjectionCheckbox.checked = this.settings.showAlphaBetaProjections;
     this.dqProjectionCheckbox.checked = this.settings.showDqProjections;
     this.lockDqCheckbox.checked = this.settings.lockDqFrame;
+    this.themeCheckbox.checked = isLightTheme();
   }
 }

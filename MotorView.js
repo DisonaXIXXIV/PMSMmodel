@@ -1,3 +1,27 @@
+// The machine view reserves a band at the top for its captions and a band at
+// the bottom for the legend and the live values. The compact panel needs the
+// bottom one too, to keep its round buttons clear of the readout, so both are
+// derived from the view scale here instead of being measured while drawing.
+const MOTOR_COMPACT_HEADER_HEIGHT = 92.0;
+const MOTOR_LEGEND_ROW_HEIGHT = 24.0;
+const MOTOR_READOUT_BOTTOM_MARGIN = 19.0;
+const MOTOR_READOUT_LEGEND_GAP = 10.0;
+
+function motorViewLegendRows(compact) {
+  return compact ? 2 : 1;
+}
+
+function motorViewReadoutHeight(scale, compact) {
+  return (compact ? 89.0 : 63.0) * scale;
+}
+
+function motorViewFooterHeight(scale, compact) {
+  return motorViewLegendRows(compact) * MOTOR_LEGEND_ROW_HEIGHT * scale
+    + MOTOR_READOUT_LEGEND_GAP * scale
+    + motorViewReadoutHeight(scale, compact)
+    + MOTOR_READOUT_BOTTOM_MARGIN * scale;
+}
+
 class MotorView {
   parameters;
   settings;
@@ -51,39 +75,41 @@ class MotorView {
     this.mechanicalAngleAtLock = 0.0;
   }
 
-  updateGeometry(area) {
+  // The compact layout hands the view the whole screen, so the machine is sized
+  // against the free band between the captions and the readout rather than
+  // against a half-width column.
+  viewScale(area, compact) {
+    if (compact) return constrain(area.w / 360.0, 0.92, 1.30);
+    return constrain(min(area.w / 640.0, area.h / 720.0), 0.68, 1.35);
+  }
+
+  updateGeometry(area, compact) {
     this.centerX = area.x + area.w * 0.5;
-    this.centerY = area.y + area.h * 0.46;
-    this.outerRadius = min(area.w * 0.365, area.h * 0.315);
+    if (compact) {
+      let scale = this.viewScale(area, true);
+      let bandTop = area.y + MOTOR_COMPACT_HEADER_HEIGHT * scale;
+      let bandBottom = area.y + area.h - motorViewFooterHeight(scale, true);
+      this.centerY = (bandTop + bandBottom) * 0.5;
+      this.outerRadius = min(area.w * 0.46, (bandBottom - bandTop) * 0.46);
+    } else {
+      this.centerY = area.y + area.h * 0.46;
+      this.outerRadius = min(area.w * 0.365, area.h * 0.315);
+    }
     this.statorInnerRadius = this.outerRadius * 0.72;
     this.rotorRadius = this.outerRadius * 0.49;
   }
 
   draw(area, motor, controller,
-            simulator) {
-    this.updateGeometry(area);
+            simulator, compact) {
+    this.updateGeometry(area, compact);
     let state = motor.state;
 
     noStroke();
     fill(18, 22, 30);
     rect(area.x, area.y, area.w, area.h);
 
-    let uiScale = constrain(min(area.w / 640.0, area.h / 720.0), 0.68, 1.35);
-    fill(235, 241, 248);
-    textAlign(LEFT, TOP);
-    textSize(19.0 * uiScale);
-    text("Синхронная машина с постоянными магнитами", area.x + 17.0 * uiScale,
-      area.y + 13.0 * uiScale);
-    fill(130, 147, 169);
-    textSize(11.5 * uiScale);
-    let frameName = this.settings.lockDqFrame ? "система наблюдения d–q зафиксирована"
-      : "неподвижная система α–β";
-    text(frameName, area.x + 18.0 * uiScale, area.y + 41.0 * uiScale);
-    fill(103, 119, 141);
-    textSize(10.5 * uiScale);
-    text("ψf = " + nf(this.parameters.magnetFlux, 1, 2)
-      + " Вб; 18 пазов, q = 3;  • — из плоскости, × — в плоскость",
-      area.x + 18.0 * uiScale, area.y + 57.0 * uiScale);
+    let scale = this.viewScale(area, compact);
+    this.drawCaptions(area, scale, compact);
 
     this.drawStator(state);
     this.drawRotor(state);
@@ -91,8 +117,42 @@ class MotorView {
     this.drawCurrentProjections(state);
     this.drawElectricalVectors(state);
     this.drawTorqueArcs(state);
-    this.drawLegend(area, uiScale);
-    this.drawReadout(area, state, simulator, uiScale);
+    this.drawLegend(area, scale, compact);
+    this.drawReadout(area, state, simulator, scale, compact);
+  }
+
+  drawCaptions(area, scale, compact) {
+    let x = area.x + (compact ? 16.0 : 17.0) * scale;
+    let frameName = this.settings.lockDqFrame ? "система наблюдения d–q зафиксирована"
+      : "неподвижная система α–β";
+    let windingNote = "ψf = " + nf(this.parameters.magnetFlux, 1, 2)
+      + " Вб; 18 пазов, q = 3;  • — из плоскости, × — в плоскость";
+
+    fill(235, 241, 248);
+    textAlign(LEFT, TOP);
+    if (compact) {
+      // The title is the widest fixed string on the screen; on a phone it has
+      // to give way rather than run off the edge.
+      fittedTextSize("Синхронная машина с постоянными магнитами",
+        area.w - 32.0 * scale, 19.0 * scale, 11.0 * scale);
+    } else {
+      textSize(19.0 * scale);
+    }
+    text("Синхронная машина с постоянными магнитами", x, area.y + (compact ? 12.0 : 13.0) * scale);
+
+    fill(130, 147, 169);
+    textSize(11.5 * scale);
+    text(frameName, area.x + (compact ? 16.0 : 18.0) * scale,
+      area.y + (compact ? 38.0 : 41.0) * scale);
+
+    fill(103, 119, 141);
+    textSize(10.5 * scale);
+    if (compact) {
+      text(windingNote, area.x + 16.0 * scale, area.y + 56.0 * scale,
+        area.w - 32.0 * scale, 32.0 * scale);
+    } else {
+      text(windingNote, area.x + 18.0 * scale, area.y + 57.0 * scale);
+    }
   }
 
   screenAngle(physicalAngle) {
@@ -416,22 +476,53 @@ class MotorView {
       endY - head * sin(tangentAngle + PI + 0.5));
   }
 
-  drawLegend(area, uiScale) {
-    let x = area.x + 17.0 * uiScale;
-    let y = area.y + area.h - 116.0 * uiScale;
-    this.drawLegendItem(x, y, color(73, 220, 232), "ток i", uiScale);
-    this.drawLegendItem(x + 85.0 * uiScale, y, color(247, 205, 74), "напряжение u", uiScale);
-    this.drawLegendItem(x + 215.0 * uiScale, y, color(236, 102, 190), "ЭДС E", uiScale);
-    this.drawLegendItem(x + 305.0 * uiScale, y, color(75, 205, 126), "Mдв", uiScale);
-    this.drawLegendItem(x + 375.0 * uiScale, y, color(241, 146, 71), "Mнагр", uiScale);
-  }
-
-  drawLegendItem(x, y, itemColor, label, uiScale) {
+  drawLegend(area, scale, compact) {
+    let entries = [
+      [color(73, 220, 232), "ток i"],
+      [color(247, 205, 74), "напряжение u"],
+      [color(236, 102, 190), "ЭДС E"],
+      [color(75, 205, 126), "Mдв"],
+      [color(241, 146, 71), "Mнагр"],
+    ];
+    let rows = motorViewLegendRows(compact);
+    let available = area.w - 34.0 * scale;
     // Match the control panel's body text, PANEL_FONT_SCALE included: the motor
     // side never got that 15 % boost, which left the legend reading small next
-    // to the panel. Deriving the marker and the gap from the label size keeps
-    // the row balanced at whatever that size works out to.
-    let labelSize = 12.5 * uiScale * PANEL_FONT_SCALE;
+    // to the panel. The items were laid out on hand-tuned offsets that only
+    // held at one width, so measure them and shrink until they fit the rows the
+    // footer has reserved.
+    let labelSize = 12.5 * scale * PANEL_FONT_SCALE;
+    let lines = [];
+    let widths = [];
+    let gap = 0.0;
+    for (let attempt = 0; attempt < 14; attempt++) {
+      textSize(labelSize);
+      let markerDiameter = labelSize * 0.62;
+      gap = labelSize * 1.2;
+      widths = entries.map((entry) =>
+        markerDiameter + labelSize * 0.35 + textWidth(entry[1]));
+      lines = flowIntoLines(widths, gap, available);
+      if (lines.length <= rows) break;
+      labelSize -= 0.5;
+    }
+
+    let x = area.x + 17.0 * scale;
+    let top = area.y + area.h - MOTOR_READOUT_BOTTOM_MARGIN * scale
+      - motorViewReadoutHeight(scale, compact) - MOTOR_READOUT_LEGEND_GAP * scale
+      - rows * MOTOR_LEGEND_ROW_HEIGHT * scale;
+    for (let row = 0; row < lines.length; row++) {
+      let itemX = x;
+      for (const index of lines[row]) {
+        this.drawLegendItem(itemX, top + row * MOTOR_LEGEND_ROW_HEIGHT * scale,
+          entries[index][0], entries[index][1], labelSize);
+        itemX += widths[index] + gap;
+      }
+    }
+  }
+
+  drawLegendItem(x, y, itemColor, label, labelSize) {
+    // Deriving the marker and the gap from the label size keeps the row
+    // balanced at whatever size the fitting above settles on.
     let markerDiameter = labelSize * 0.62;
     let markerY = y + labelSize * 0.5;
     noStroke();
@@ -443,31 +534,48 @@ class MotorView {
     text(label, x + markerDiameter + labelSize * 0.35, markerY);
   }
 
-  drawReadout(area, state, simulator, uiScale) {
-    let x = area.x + 17.0 * uiScale;
-    let y = area.y + area.h - 82.0 * uiScale;
-    let w = area.w - 34.0 * uiScale;
+  drawReadout(area, state, simulator, scale, compact) {
+    let x = area.x + 17.0 * scale;
+    let w = area.w - 34.0 * scale;
+    let readoutHeight = motorViewReadoutHeight(scale, compact);
+    let y = area.y + area.h - MOTOR_READOUT_BOTTOM_MARGIN * scale - readoutHeight;
     noStroke();
     fill(23, 29, 39);
-    rect(x, y, w, 63.0 * uiScale, 7.0 * uiScale);
+    rect(x, y, w, readoutHeight, 7.0 * scale);
+
+    let speed = "n = " + formatSignedNumber(rpmFromRadians(state.mechanicalSpeed), 0) + " об/мин";
+    let motorTorque = "Mдв = " + nf(state.electromagneticTorque, 1, 2) + " Н·м";
+    let loadTorque = "Mнагр = " + nf(state.loadTorque, 1, 2) + " Н·м";
+    let currentD = "id = " + nf(state.currentD, 1, 2) + " А";
+    let currentQ = "iq = " + nf(state.currentQ, 1, 2) + " А";
+    let voltage = "|u| = " + nf(sqrt(state.voltageAlpha * state.voltageAlpha
+      + state.voltageBeta * state.voltageBeta), 1, 1) + " В";
 
     fill(194, 205, 220);
     textAlign(LEFT, TOP);
-    textSize(11.0 * uiScale);
-    let lineOne = "n = " + formatSignedNumber(
-      rpmFromRadians(state.mechanicalSpeed), 0) + " об/мин"
-      + "     Mдв = " + nf(state.electromagneticTorque, 1, 2) + " Н·м"
-      + "     Mнагр = " + nf(state.loadTorque, 1, 2) + " Н·м";
-    let lineTwo = "id = " + nf(state.currentD, 1, 2) + " А"
-      + "     iq = " + nf(state.currentQ, 1, 2) + " А"
-      + "     |u| = " + nf(sqrt(state.voltageAlpha * state.voltageAlpha
-      + state.voltageBeta * state.voltageBeta), 1, 1) + " В";
-    text(lineOne, x + 11.0 * uiScale, y + 9.0 * uiScale);
-    text(lineTwo, x + 11.0 * uiScale, y + 34.0 * uiScale);
+    if (compact) {
+      // Six values will not sit on two lines at this width, and shrinking them
+      // to fit would undo the point of the layout. A two-column grid keeps the
+      // mechanical quantities together on the left and the electrical on the
+      // right, and its height is fixed whatever the numbers read.
+      let values = [speed, motorTorque, loadTorque, currentD, currentQ, voltage];
+      textSize(12.5 * scale);
+      for (let i = 0; i < values.length; i++) {
+        let column = i < 3 ? 0 : 1;
+        let row = i % 3;
+        text(values[i], x + 11.0 * scale + column * (w - 22.0 * scale) * 0.5,
+          y + 9.0 * scale + row * 25.0 * scale);
+      }
+    } else {
+      textSize(11.0 * scale);
+      text(speed + "     " + motorTorque + "     " + loadTorque, x + 11.0 * scale, y + 9.0 * scale);
+      text(currentD + "     " + currentQ + "     " + voltage, x + 11.0 * scale, y + 34.0 * scale);
+    }
     if (simulationPaused) {
       fill(245, 177, 80);
       textAlign(RIGHT, TOP);
-      text("ПАУЗА", x + w - 10.0 * uiScale, y + 9.0 * uiScale);
+      textSize((compact ? 12.5 : 11.0) * scale);
+      text("ПАУЗА", x + w - 10.0 * scale, y + 9.0 * scale);
     }
   }
 
@@ -487,8 +595,8 @@ class MotorView {
     return this.currentVectorMaximumLength() / this.parameters.maximumCurrent;
   }
 
-  mousePressed(px, py, area, controller) {
-    this.updateGeometry(area);
+  mousePressed(px, py, area, controller, compact) {
+    this.updateGeometry(area, compact);
     if (this.settings.mode != MODE_MANUAL) return;
     let distance = dist(px, py, this.centerX, this.centerY);
     if (distance <= this.manualVectorMaximumLength()) {
@@ -497,9 +605,9 @@ class MotorView {
     }
   }
 
-  mouseDragged(px, py, area, controller) {
+  mouseDragged(px, py, area, controller, compact) {
     if (!this.manualDragging || this.settings.mode != MODE_MANUAL) return;
-    this.updateGeometry(area);
+    this.updateGeometry(area, compact);
     this.updateManualVector(px, py, controller);
   }
 

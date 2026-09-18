@@ -75,8 +75,8 @@ function draw() {
   motorView.updateReferenceFrame(motor.state);
 
   background(16, 20, 28);
-  motorView.draw(sketchLayout.motorArea, motor, driveController, simulator);
-  controlPanel.draw(sketchLayout.panelArea, motor, simulator);
+  motorView.draw(sketchLayout.motorArea, motor, driveController, simulator, sketchLayout.compact);
+  controlPanel.draw(sketchLayout.panelArea, motor, simulator, sketchLayout.compact);
 }
 
 // The container carries the viewport height, dynamic units included, so it is a
@@ -100,12 +100,12 @@ function windowResized() {
 
 function pointerPressed(px, py) {
   if (controlPanel.mousePressed(px, py)) return;
-  motorView.mousePressed(px, py, sketchLayout.motorArea, driveController);
+  motorView.mousePressed(px, py, sketchLayout.motorArea, driveController, sketchLayout.compact);
 }
 
 function pointerDragged(px, py) {
   if (controlPanel.mouseDragged(px, py)) return;
-  motorView.mouseDragged(px, py, sketchLayout.motorArea, driveController);
+  motorView.mouseDragged(px, py, sketchLayout.motorArea, driveController, sketchLayout.compact);
 }
 
 function pointerReleased() {

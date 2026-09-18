@@ -1,4 +1,55 @@
 const PANEL_FONT_SCALE = 1.15;
+// Both mobile platform guidelines land on roughly the same comfortable touch
+// target, and every control the compact layout lays out is sized against it.
+const TOUCH_TARGET_MINIMUM = 44.0;
+// Anything that cannot hold the machine and the panel side by side — a phone in
+// portrait, a narrow window — gets the compact layout instead.
+const COMPACT_MAXIMUM_ASPECT = 1.1;
+const COMPACT_MAXIMUM_WIDTH = 820.0;
+// The sheet grows with its contents up to this much of the screen, then its
+// rows are shrunk instead, but never below the second fraction of their size.
+const SHEET_MAXIMUM_FRACTION = 0.88;
+const SHEET_MINIMUM_FRACTION = 0.30;
+const SHEET_MINIMUM_ROW_FIT = 0.72;
+// How far the sheet header has to be pulled down before the sheet closes.
+const SHEET_DISMISS_DISTANCE = 70.0;
+
+const TAB_CONTROL = 0;
+const TAB_VISUALISATION = 1;
+
+// Shrinks a label until it fits, for the few headings that are set in one line
+// at whatever width the screen happens to be.
+function fittedTextSize(label, maximumWidth, desiredSize, minimumSize) {
+  let size = desiredSize;
+  while (size > minimumSize) {
+    textSize(size);
+    if (textWidth(label) <= maximumWidth) break;
+    size -= 0.5;
+  }
+  textSize(size);
+  return size;
+}
+
+// Packs pre-measured pieces into as few lines as fit the width. Used for the
+// legend and the readout, whose contents differ by mode and by locale width.
+function flowIntoLines(widths, gap, maximumWidth) {
+  let lines = [];
+  let current = [];
+  let used = 0.0;
+  for (let i = 0; i < widths.length; i++) {
+    let advance = current.length === 0 ? widths[i] : gap + widths[i];
+    if (current.length > 0 && used + advance > maximumWidth) {
+      lines.push(current);
+      current = [i];
+      used = widths[i];
+      continue;
+    }
+    current.push(i);
+    used += advance;
+  }
+  if (current.length > 0) lines.push(current);
+  return lines;
+}
 
 class Area {
   x;
@@ -21,11 +72,36 @@ class Area {
 class SketchLayout {
   motorArea = new Area();
   panelArea = new Area();
+  compact = false;
+  forcedMode = null;
 
   update(sketchWidth, sketchHeight) {
+    this.compact = this.resolveCompact(sketchWidth, sketchHeight);
+    if (this.compact) {
+      // The panel floats above the machine rather than taking a column from it,
+      // so both get the whole screen and the panel decides what it swallows.
+      this.motorArea.set(0.0, 0.0, sketchWidth, sketchHeight);
+      this.panelArea.set(0.0, 0.0, sketchWidth, sketchHeight);
+      return;
+    }
     let divider = sketchWidth * 0.5;
     this.motorArea.set(0.0, 0.0, divider, sketchHeight);
     this.panelArea.set(divider, 0.0, sketchWidth - divider, sketchHeight);
+  }
+
+  resolveCompact(sketchWidth, sketchHeight) {
+    if (this.forcedMode === null) {
+      // ?layout=compact and ?layout=desktop let either layout be opened from
+      // either kind of screen, which is the only way to check one from the other.
+      let requested = null;
+      if (typeof window !== "undefined" && window.location) {
+        requested = new URLSearchParams(window.location.search).get("layout");
+      }
+      this.forcedMode = requested === "compact" || requested === "desktop" ? requested : "";
+    }
+    if (this.forcedMode !== "") return this.forcedMode === "compact";
+    return sketchWidth < sketchHeight * COMPACT_MAXIMUM_ASPECT
+      || sketchWidth < COMPACT_MAXIMUM_WIDTH;
   }
 }
 
@@ -39,6 +115,7 @@ class SliderControl {
   y;
   w;
   h;
+  scale = 1.0;
   visible = true;
   dragging = false;
   decimalPlaces = 1;
@@ -52,33 +129,46 @@ class SliderControl {
     this.value = value;
   }
 
-  setBounds(x, y, w, h) {
+  setBounds(x, y, w, h, scale) {
     this.x = x;
     this.y = y;
     this.w = w;
     this.h = h;
+    this.scale = scale;
   }
 
-  drawControl(uiScale) {
+  // The track and the handle are proportions of the row rather than multiples
+  // of the text scale, so a row stretched to a touch target carries a handle
+  // and a hit band stretched with it. At the desktop row height of 39 · scale
+  // these reproduce the original 25 · scale and 13 · scale exactly.
+  trackY() {
+    return this.y + this.h * 0.641;
+  }
+
+  handleDiameter() {
+    return this.h * 0.333;
+  }
+
+  drawControl() {
     if (!this.visible) return;
 
     fill(205, 214, 228);
     textAlign(LEFT, TOP);
-    textSize(12.5 * uiScale * PANEL_FONT_SCALE);
+    textSize(12.5 * this.scale * PANEL_FONT_SCALE);
     text(this.label, this.x, this.y);
     textAlign(RIGHT, TOP);
     text(this.formatValue(this.value) + this.suffix, this.x + this.w, this.y);
 
-    let trackY = this.y + 25.0 * uiScale;
+    let trackY = this.trackY();
     stroke(66, 77, 94);
-    strokeWeight(4.0 * uiScale);
+    strokeWeight(4.0 * this.scale);
     line(this.x, trackY, this.x + this.w, trackY);
     let fraction = (this.value - this.minimum) / (this.maximum - this.minimum);
     stroke(75, 184, 226);
     line(this.x, trackY, this.x + this.w * fraction, trackY);
     noStroke();
     fill(this.dragging ? color(130, 220, 255) : color(228, 239, 247));
-    circle(this.x + this.w * fraction, trackY, 13.0 * uiScale);
+    circle(this.x + this.w * fraction, trackY, this.handleDiameter());
   }
 
   formatValue(number) {
@@ -93,10 +183,9 @@ class SliderControl {
     return (number > 0.0 ? "+" : "−") + formatted;
   }
 
-  press(px, py, uiScale) {
+  press(px, py) {
     if (!this.visible) return false;
-    let trackY = this.y + 25.0 * uiScale;
-    if (px >= this.x - 8.0 * uiScale && px <= this.x + this.w + 8.0 * uiScale
+    if (px >= this.x - 8.0 * this.scale && px <= this.x + this.w + 8.0 * this.scale
         && py >= this.y && py <= this.y + this.h) {
       this.dragging = true;
       this.updateFromMouse(px);
@@ -128,6 +217,7 @@ class CheckboxControl {
   y;
   w;
   h;
+  scale = 1.0;
   visible = true;
 
   constructor(label, checked) {
@@ -135,36 +225,178 @@ class CheckboxControl {
     this.checked = checked;
   }
 
-  setBounds(x, y, w, h) {
+  setBounds(x, y, w, h, scale) {
     this.x = x;
     this.y = y;
     this.w = w;
     this.h = h;
+    this.scale = scale;
   }
 
-  drawControl(uiScale) {
+  drawControl() {
     if (!this.visible) return;
-    let boxSize = 15.0 * uiScale;
+    // The box and the label keep their own size and sit centred in the row, so
+    // growing the row to a touch target grows the hit area and not the text.
+    let boxSize = 15.0 * this.scale;
+    let boxY = this.y + (this.h - boxSize) * 0.5;
     stroke(105, 122, 145);
-    strokeWeight(1.2 * uiScale);
+    strokeWeight(1.2 * this.scale);
     fill(28, 34, 45);
-    rect(this.x, this.y + 2.0 * uiScale, boxSize, boxSize, 3.0 * uiScale);
+    rect(this.x, boxY, boxSize, boxSize, 3.0 * this.scale);
     if (this.checked) {
       noStroke();
       fill(68, 190, 226);
-      rect(this.x + 3.0 * uiScale, this.y + 5.0 * uiScale,
-        boxSize - 6.0 * uiScale, boxSize - 6.0 * uiScale, 2.0 * uiScale);
+      rect(this.x + 3.0 * this.scale, boxY + 3.0 * this.scale,
+        boxSize - 6.0 * this.scale, boxSize - 6.0 * this.scale, 2.0 * this.scale);
     }
+    // The box outline is still set as the stroke; without clearing it the label
+    // is drawn outlined and reads as bold next to the checked ones.
+    noStroke();
     fill(211, 220, 232);
-    textAlign(LEFT, TOP);
-    textSize(12.0 * uiScale * PANEL_FONT_SCALE);
-    text(this.label, this.x + 22.0 * uiScale, this.y, this.w - 22.0 * uiScale, this.h);
+    textAlign(LEFT, CENTER);
+    textSize(12.0 * this.scale * PANEL_FONT_SCALE);
+    text(this.label, this.x + 22.0 * this.scale, this.y, this.w - 22.0 * this.scale, this.h);
   }
 
   press(px, py) {
-    if (!this.visible || px < this.x || px > this.x + this.w || py < this.y || py > this.y + this.h) return false;
+    if (!this.visible || px < this.x || px > this.x + this.w
+        || py < this.y || py > this.y + this.h) return false;
     this.checked = !this.checked;
     return true;
+  }
+}
+
+// A row of equally wide buttons. The segmented rows — control mode, manual
+// vector type, the sheet's tabs — mark one entry as selected; the pause and
+// reset pair marks none, or the pause entry while the simulation is held.
+class ButtonRowControl {
+  labels;
+  selectedIndex = -1;
+  x;
+  y;
+  w;
+  h;
+  gap = 0.0;
+  scale = 1.0;
+  visible = true;
+  labelSize = 11.2;
+
+  constructor(labels) {
+    this.labels = labels;
+  }
+
+  setBounds(x, y, w, h, gap, scale) {
+    this.x = x;
+    this.y = y;
+    this.w = w;
+    this.h = h;
+    this.gap = gap;
+    this.scale = scale;
+  }
+
+  buttonWidth() {
+    return (this.w - this.gap * (this.labels.length - 1)) / this.labels.length;
+  }
+
+  buttonX(index) {
+    return this.x + index * (this.buttonWidth() + this.gap);
+  }
+
+  drawControl() {
+    if (!this.visible) return;
+    let buttonWidth = this.buttonWidth();
+    for (let i = 0; i < this.labels.length; i++) {
+      let selected = this.selectedIndex === i;
+      noStroke();
+      fill(selected ? color(49, 142, 178) : color(38, 46, 60));
+      rect(this.buttonX(i), this.y, buttonWidth, this.h, 5.0 * this.scale);
+      fill(selected ? color(247) : color(180, 192, 210));
+      textAlign(CENTER, CENTER);
+      let size = fittedTextSize(this.labels[i], buttonWidth - 10.0 * this.scale,
+        this.labelSize * this.scale * PANEL_FONT_SCALE, 8.0 * this.scale);
+      textSize(size);
+      text(this.labels[i], this.buttonX(i) + buttonWidth * 0.5, this.y + this.h * 0.48);
+    }
+  }
+
+  press(px, py) {
+    if (!this.visible || py < this.y || py > this.y + this.h) return -1;
+    let buttonWidth = this.buttonWidth();
+    for (let i = 0; i < this.labels.length; i++) {
+      let x = this.buttonX(i);
+      if (px >= x && px <= x + buttonWidth) return i;
+    }
+    return -1;
+  }
+}
+
+// The round buttons the compact layout leaves on top of the machine: one opens
+// the settings sheet, one holds and resumes the simulation.
+const ICON_SETTINGS = 0;
+const ICON_PAUSE = 1;
+const ICON_PLAY = 2;
+
+class IconButtonControl {
+  icon;
+  x;
+  y;
+  diameter;
+  visible = false;
+
+  constructor(icon) {
+    this.icon = icon;
+  }
+
+  setBounds(x, y, diameter) {
+    this.x = x;
+    this.y = y;
+    this.diameter = diameter;
+  }
+
+  drawControl(highlighted) {
+    if (!this.visible) return;
+    let radius = this.diameter * 0.5;
+    noStroke();
+    fill(highlighted ? color(158, 105, 47) : color(40, 49, 64, 235));
+    circle(this.x + radius, this.y + radius, this.diameter);
+    stroke(226, 233, 242);
+    strokeWeight(this.diameter * 0.055);
+    noFill();
+    let centreX = this.x + radius;
+    let centreY = this.y + radius;
+    // The glyphs are drawn rather than typed: a font that lacks them would
+    // otherwise leave an empty circle with no way to tell what it does.
+    if (this.icon === ICON_SETTINGS) {
+      let reach = this.diameter * 0.26;
+      let spacing = this.diameter * 0.17;
+      for (let row = -1; row <= 1; row++) {
+        let lineY = centreY + row * spacing;
+        line(centreX - reach, lineY, centreX + reach, lineY);
+        noStroke();
+        fill(226, 233, 242);
+        circle(centreX + row * reach * 0.55, lineY, this.diameter * 0.13);
+        stroke(226, 233, 242);
+        noFill();
+      }
+    } else if (this.icon === ICON_PAUSE) {
+      let barOffset = this.diameter * 0.1;
+      let barHeight = this.diameter * 0.19;
+      line(centreX - barOffset, centreY - barHeight, centreX - barOffset, centreY + barHeight);
+      line(centreX + barOffset, centreY - barHeight, centreX + barOffset, centreY + barHeight);
+    } else {
+      noStroke();
+      fill(226, 233, 242);
+      let reach = this.diameter * 0.17;
+      triangle(centreX - reach * 0.75, centreY - reach, centreX - reach * 0.75, centreY + reach,
+        centreX + reach, centreY);
+    }
+    noStroke();
+  }
+
+  press(px, py) {
+    if (!this.visible) return false;
+    let radius = this.diameter * 0.5;
+    return dist(px, py, this.x + radius, this.y + radius) <= radius;
   }
 }
 
@@ -193,20 +425,29 @@ class ControlPanel {
   dqProjectionCheckbox;
   lockDqCheckbox;
 
+  modeButtons;
+  manualVectorButtons;
+  actionButtons;
+  tabButtons;
+  settingsButton;
+  pauseButton;
+
   allSliders;
   allCheckboxes;
+  allButtonRows;
 
-  uiScale = 1.0;
-  modeButtonsX;
-  modeButtonsY;
-  modeButtonWidth;
-  modeButtonHeight;
-  actionButtonY;
-  actionButtonWidth;
-  manualVectorButtonsX;
-  manualVectorButtonsY;
-  manualVectorButtonWidth;
-  manualVectorButtonHeight;
+  scale = 1.0;
+  compact = false;
+  sheetOpen = false;
+  sheetTop = 0.0;
+  sheetHeaderBottom = 0.0;
+  sheetDragStartY = null;
+  activeTab = TAB_CONTROL;
+  // Layout writes the positioned entries here and both rendering and hit
+  // testing read them, so a control's rectangle is decided in exactly one place.
+  items = [];
+  lastState = null;
+  lastSimulator = null;
 
   constructor(parameters, settings, controller) {
     this.parameters = parameters;
@@ -246,6 +487,16 @@ class ControlPanel {
     this.dqProjectionCheckbox = new CheckboxControl("Проекции id, iq", settings.showDqProjections);
     this.lockDqCheckbox = new CheckboxControl("Зафиксировать оси d–q", settings.lockDqFrame);
 
+    this.modeButtons = new ButtonRowControl(["Ручной", "Разомкнутый", "Векторный"]);
+    this.manualVectorButtons = new ButtonRowControl(["Вектор тока", "Вектор напряжения"]);
+    this.manualVectorButtons.labelSize = 11.0;
+    this.actionButtons = new ButtonRowControl(["Пауза", "Сброс"]);
+    this.actionButtons.labelSize = 12.5;
+    this.tabButtons = new ButtonRowControl(["Управление", "Визуализация"]);
+    this.tabButtons.labelSize = 12.0;
+    this.settingsButton = new IconButtonControl(ICON_SETTINGS);
+    this.pauseButton = new IconButtonControl(ICON_PAUSE);
+
     this.allSliders = [
       this.loadSlider, this.voltageSlider, this.frequencySlider, this.currentQSlider,
       this.currentKpSlider, this.currentKiSlider, this.speedSlider, this.speedKpSlider, this.speedKiSlider
@@ -254,175 +505,332 @@ class ControlPanel {
       this.speedLoopCheckbox, this.voltageCheckbox, this.emfCheckbox, this.alphaBetaAxesCheckbox,
       this.dqAxesCheckbox, this.alphaBetaProjectionCheckbox, this.dqProjectionCheckbox, this.lockDqCheckbox
     ];
+    this.allButtonRows = [
+      this.modeButtons, this.manualVectorButtons, this.actionButtons, this.tabButtons
+    ];
   }
 
-  draw(area, motor, simulator) {
+  visualisationCheckboxes() {
+    return [
+      this.voltageCheckbox, this.emfCheckbox, this.alphaBetaAxesCheckbox, this.dqAxesCheckbox,
+      this.alphaBetaProjectionCheckbox, this.dqProjectionCheckbox, this.lockDqCheckbox
+    ];
+  }
+
+  draw(area, motor, simulator, compact) {
+    this.compact = compact;
     this.lastArea.set(area.x, area.y, area.w, area.h);
-    this.uiScale = constrain(min(area.w / 640.0, area.h / 720.0), 0.68, 1.35);
-    let padding = 18.0 * this.uiScale;
-    let contentX = area.x + padding;
-    let contentWidth = area.w - 2.0 * padding;
-    let y = area.y + 13.0 * this.uiScale;
+    this.lastState = motor.state;
+    this.lastSimulator = simulator;
+    this.syncSelections();
+    if (compact) this.drawCompact(area);
+    else this.drawDesktop(area);
+  }
+
+  syncSelections() {
+    this.modeButtons.selectedIndex = this.settings.mode;
+    this.manualVectorButtons.selectedIndex = this.settings.manualVectorType;
+    this.actionButtons.labels[0] = simulationPaused ? "Продолжить" : "Пауза";
+    this.actionButtons.selectedIndex = simulationPaused ? 0 : -1;
+    this.tabButtons.selectedIndex = this.activeTab;
+    this.pauseButton.icon = simulationPaused ? ICON_PLAY : ICON_PAUSE;
+  }
+
+  hideAllControls() {
+    for (const slider of this.allSliders) slider.visible = false;
+    for (const checkbox of this.allCheckboxes) checkbox.visible = false;
+    for (const row of this.allButtonRows) row.visible = false;
+    this.settingsButton.visible = false;
+    this.pauseButton.visible = false;
+  }
+
+  // -- layout helpers -------------------------------------------------------
+
+  addTitle(label, x, y, w, size) {
+    this.items.push({ kind: "title", x, y, w, h: size, label, size });
+  }
+
+  addSection(label, x, y, w, advance) {
+    this.items.push({ kind: "section", x, y, w, h: advance, label });
+  }
+
+  addControl(control) {
+    control.visible = true;
+    this.items.push({ kind: "control", control });
+  }
+
+  addSlider(slider, x, y, w, h) {
+    slider.setBounds(x, y, w, h, this.scale);
+    this.addControl(slider);
+  }
+
+  // -- desktop --------------------------------------------------------------
+
+  drawDesktop(area) {
+    this.scale = constrain(min(area.w / 640.0, area.h / 720.0), 0.68, 1.35);
+    this.layoutDesktop(area);
 
     noStroke();
     fill(23, 28, 38);
     rect(area.x, area.y, area.w, area.h);
     fill(47, 57, 73);
-    rect(area.x, area.y, max(1.0, this.uiScale), area.h);
+    rect(area.x, area.y, max(1.0, this.scale), area.h);
+    this.renderItems();
+  }
 
-    fill(237, 242, 249);
-    textAlign(LEFT, TOP);
-    textSize(21.0 * this.uiScale * PANEL_FONT_SCALE);
-    text("Управление PMSM", contentX, y);
-    y += 37.0 * this.uiScale;
+  layoutDesktop(area) {
+    this.hideAllControls();
+    this.items = [];
+    let scale = this.scale;
+    let padding = 18.0 * scale;
+    let contentX = area.x + padding;
+    let contentWidth = area.w - 2.0 * padding;
+    let y = area.y + 13.0 * scale;
 
-    fill(145, 159, 180);
-    textSize(11.5 * this.uiScale * PANEL_FONT_SCALE);
-    text("РЕЖИМ УПРАВЛЕНИЯ", contentX, y);
-    y += 18.0 * this.uiScale;
+    this.addTitle("Управление PMSM", contentX, y, contentWidth, 21.0 * scale * PANEL_FONT_SCALE);
+    y += 37.0 * scale;
 
-    this.modeButtonsX = contentX;
-    this.modeButtonsY = y;
-    this.modeButtonHeight = 31.0 * this.uiScale;
-    this.modeButtonWidth = (contentWidth - 8.0 * this.uiScale) / 3.0;
-    this.drawModeButton(0, "Ручной");
-    this.drawModeButton(1, "Разомкнутый");
-    this.drawModeButton(2, "Векторный");
-    y += this.modeButtonHeight + 10.0 * this.uiScale;
+    this.addSection("РЕЖИМ УПРАВЛЕНИЯ", contentX, y, contentWidth, 18.0 * scale);
+    y += 18.0 * scale;
 
-    this.loadSlider.visible = true;
-    this.loadSlider.setBounds(contentX, y, contentWidth, 39.0 * this.uiScale);
-    this.loadSlider.drawControl(this.uiScale);
-    y += 43.0 * this.uiScale;
+    this.modeButtons.setBounds(contentX, y, contentWidth, 31.0 * scale, 4.0 * scale, scale);
+    this.addControl(this.modeButtons);
+    y += 31.0 * scale + 10.0 * scale;
 
-    this.drawStatusCard(contentX, y, contentWidth, 61.0 * this.uiScale, motor.state, simulator);
-    y += 70.0 * this.uiScale;
+    this.addSlider(this.loadSlider, contentX, y, contentWidth, 39.0 * scale);
+    y += 43.0 * scale;
 
-    this.voltageSlider.visible = this.settings.mode == MODE_OPEN_LOOP;
-    this.frequencySlider.visible = this.settings.mode == MODE_OPEN_LOOP;
-    this.currentQSlider.visible = this.settings.mode == MODE_VECTOR && !this.speedLoopCheckbox.checked;
-    this.currentKpSlider.visible = this.settings.mode == MODE_VECTOR;
-    this.currentKiSlider.visible = this.settings.mode == MODE_VECTOR;
-    this.speedLoopCheckbox.visible = this.settings.mode == MODE_VECTOR;
-    this.speedSlider.visible = this.settings.mode == MODE_VECTOR && this.speedLoopCheckbox.checked;
-    this.speedKpSlider.visible = this.settings.mode == MODE_VECTOR && this.speedLoopCheckbox.checked;
-    this.speedKiSlider.visible = this.settings.mode == MODE_VECTOR && this.speedLoopCheckbox.checked;
+    this.items.push({ kind: "status", x: contentX, y, w: contentWidth, h: 61.0 * scale });
+    y += 70.0 * scale;
+
+    y = this.layoutModeControls(contentX, y, contentWidth, 39.0 * scale, 22.0 * scale, false);
+
+    y += 2.0 * scale;
+    this.addSection("ВИЗУАЛИЗАЦИЯ", contentX, y, contentWidth, 21.0 * scale);
+    y += 21.0 * scale;
+
+    let columnGap = 12.0 * scale;
+    let columnWidth = (contentWidth - columnGap) * 0.5;
+    let visualChecks = this.visualisationCheckboxes();
+    for (let i = 0; i < visualChecks.length; i++) {
+      // Processing truncated this division because i was an int; in JavaScript
+      // it yields halves, which staggered the two columns by half a row.
+      let row = floor(i / 2);
+      let column = i % 2;
+      let checkWidth = i === visualChecks.length - 1 ? contentWidth : columnWidth;
+      visualChecks[i].setBounds(contentX + column * (columnWidth + columnGap),
+        y + row * 25.0 * scale, checkWidth, 21.0 * scale, scale);
+      this.addControl(visualChecks[i]);
+    }
+
+    this.actionButtons.setBounds(contentX, area.y + area.h - 46.0 * scale, contentWidth,
+      32.0 * scale, 9.0 * scale, scale);
+    this.addControl(this.actionButtons);
+  }
+
+  // Shared by both layouts: the mode buttons decide which references are on
+  // offer, and that set is the same whichever way the panel is arranged.
+  layoutModeControls(contentX, y, contentWidth, sliderHeight, rowHeight, compact) {
+    let scale = this.scale;
+    let sliderAdvance = sliderHeight + 4.0 * scale;
 
     if (this.settings.mode == MODE_MANUAL) {
-      fill(145, 159, 180);
-      textAlign(LEFT, TOP);
-      textSize(11.5 * this.uiScale * PANEL_FONT_SCALE);
-      text("РУЧНОЕ ЗАДАНИЕ", contentX, y);
-      y += 19.0 * this.uiScale;
+      this.addSection("РУЧНОЕ ЗАДАНИЕ", contentX, y, contentWidth, 19.0 * scale);
+      y += 19.0 * scale;
+      this.manualVectorButtons.setBounds(contentX, y, contentWidth,
+        compact ? rowHeight : 30.0 * scale, 5.0 * scale, scale);
+      this.addControl(this.manualVectorButtons);
+      y += (compact ? rowHeight : 30.0 * scale) + 9.0 * scale;
+      // The same sentence wraps to three lines in a phone-width column, and a
+      // hint clipped halfway through is worse than no hint at all.
+      let hintHeight = (compact ? 78.0 : 48.0) * scale;
+      this.items.push({ kind: "hint", x: contentX, y, w: contentWidth, h: hintHeight });
+      y += hintHeight + 10.0 * scale;
+      return y;
+    }
 
-      this.manualVectorButtonsX = contentX;
-      this.manualVectorButtonsY = y;
-      this.manualVectorButtonHeight = 30.0 * this.uiScale;
-      this.manualVectorButtonWidth = (contentWidth - 5.0 * this.uiScale) * 0.5;
-      this.drawManualVectorButton(MANUAL_VECTOR_CURRENT, "Вектор тока");
-      this.drawManualVectorButton(MANUAL_VECTOR_VOLTAGE, "Вектор напряжения");
-      y += this.manualVectorButtonHeight + 9.0 * this.uiScale;
+    if (this.settings.mode == MODE_OPEN_LOOP) {
+      this.addSlider(this.voltageSlider, contentX, y, contentWidth, sliderHeight);
+      y += sliderAdvance;
+      this.addSlider(this.frequencySlider, contentX, y, contentWidth, sliderHeight);
+      y += sliderAdvance;
+      return y;
+    }
 
-      this.drawManualHint(contentX, y, contentWidth, 48.0 * this.uiScale);
-      y += 58.0 * this.uiScale;
-    } else if (this.settings.mode == MODE_OPEN_LOOP) {
-      y = this.drawSliderAt(this.voltageSlider, contentX, y, contentWidth);
-      y = this.drawSliderAt(this.frequencySlider, contentX, y, contentWidth);
+    if (!this.speedLoopCheckbox.checked) {
+      this.addSlider(this.currentQSlider, contentX, y, contentWidth, sliderHeight);
+      y += sliderAdvance;
+    }
+    this.addSlider(this.currentKpSlider, contentX, y, contentWidth, sliderHeight);
+    y += sliderAdvance;
+    this.addSlider(this.currentKiSlider, contentX, y, contentWidth, sliderHeight);
+    y += sliderAdvance;
+    this.speedLoopCheckbox.setBounds(contentX, y, contentWidth, rowHeight, scale);
+    this.addControl(this.speedLoopCheckbox);
+    y += rowHeight + 5.0 * scale;
+    if (this.speedLoopCheckbox.checked) {
+      this.addSlider(this.speedSlider, contentX, y, contentWidth, sliderHeight);
+      y += sliderAdvance;
+      this.addSlider(this.speedKpSlider, contentX, y, contentWidth, sliderHeight);
+      y += sliderAdvance;
+      this.addSlider(this.speedKiSlider, contentX, y, contentWidth, sliderHeight);
+      y += sliderAdvance;
+    }
+    return y;
+  }
+
+  // -- compact --------------------------------------------------------------
+
+  drawCompact(area) {
+    this.scale = constrain(area.w / 360.0, 0.92, 1.30);
+    this.hideAllControls();
+    this.items = [];
+
+    // Side by side rather than stacked: a single row fits in the gap the footer
+    // leaves below the machine, where the buttons cover none of the winding.
+    let buttonDiameter = max(TOUCH_TARGET_MINIMUM + 12.0, 56.0 * this.scale);
+    let margin = 16.0 * this.scale;
+    let buttonGap = 12.0 * this.scale;
+    let buttonsY = area.y + area.h
+      - motorViewFooterHeight(motorView.viewScale(area, true), true)
+      - buttonDiameter - margin;
+    let settingsX = area.x + area.w - margin - buttonDiameter;
+    this.settingsButton.setBounds(settingsX, buttonsY, buttonDiameter);
+    this.pauseButton.setBounds(settingsX - buttonDiameter - buttonGap, buttonsY, buttonDiameter);
+
+    if (!this.sheetOpen) {
+      this.sheetTop = area.y + area.h;
+      this.settingsButton.visible = true;
+      this.pauseButton.visible = true;
+      this.pauseButton.drawControl(simulationPaused);
+      this.settingsButton.drawControl(false);
+      return;
+    }
+    // While the sheet is up the buttons would sit on top of its controls, and
+    // both of them are already in it: the tabs hold pause, the scrim and the
+    // handle close it.
+    this.settingsButton.visible = false;
+    this.pauseButton.visible = false;
+
+    // Lay the sheet out against a zero origin to learn how tall it wants to be,
+    // shrinking the rows if the screen cannot give it that, and only then place
+    // it for real at the settled height.
+    let rowFit = 1.0;
+    let sheetHeight = 0.0;
+    for (let pass = 0; pass < 3; pass++) {
+      let needed = this.layoutSheet(area, rowFit, 0.0);
+      sheetHeight = min(needed, area.h * SHEET_MAXIMUM_FRACTION);
+      if (needed <= sheetHeight + 0.5) break;
+      rowFit = max(SHEET_MINIMUM_ROW_FIT, rowFit * sheetHeight / needed);
+    }
+    sheetHeight = constrain(sheetHeight, area.h * SHEET_MINIMUM_FRACTION,
+      area.h * SHEET_MAXIMUM_FRACTION);
+    this.sheetTop = area.y + area.h - sheetHeight;
+    this.layoutSheet(area, rowFit, this.sheetTop);
+
+    noStroke();
+    fill(8, 11, 16, 190);
+    rect(area.x, area.y, area.w, area.h);
+    fill(23, 28, 38);
+    let corner = 18.0 * this.scale;
+    rect(area.x, this.sheetTop, area.w, sheetHeight, corner, corner, 0.0, 0.0);
+    fill(84, 97, 117);
+    let handleWidth = 44.0 * this.scale;
+    rect(area.x + (area.w - handleWidth) * 0.5, this.sheetTop + 8.0 * this.scale,
+      handleWidth, 4.0 * this.scale, 2.0 * this.scale);
+    this.renderItems();
+  }
+
+  // Builds the sheet at the given origin and reports the height it needs.
+  layoutSheet(area, rowFit, originY) {
+    this.hideAllControls();
+    this.items = [];
+    let scale = this.scale;
+    let padding = 18.0 * scale;
+    let contentX = area.x + padding;
+    let contentWidth = area.w - 2.0 * padding;
+    let sliderHeight = max(TOUCH_TARGET_MINIMUM, 52.0 * scale) * rowFit;
+    let rowHeight = max(TOUCH_TARGET_MINIMUM, 34.0 * scale) * rowFit;
+    let y = originY + 22.0 * scale;
+
+    this.tabButtons.setBounds(contentX, y, contentWidth, rowHeight, 5.0 * scale, scale);
+    this.addControl(this.tabButtons);
+    y += rowHeight + 12.0 * scale;
+
+    // The machine's own readout is behind the sheet while it is open, so the
+    // live values travel with the controls that change them.
+    this.items.push({ kind: "status", x: contentX, y, w: contentWidth, h: 61.0 * scale });
+    y += 70.0 * scale;
+    this.sheetHeaderBottom = y;
+
+    if (this.activeTab === TAB_CONTROL) {
+      this.addSection("РЕЖИМ УПРАВЛЕНИЯ", contentX, y, contentWidth, 18.0 * scale);
+      y += 18.0 * scale;
+      this.modeButtons.setBounds(contentX, y, contentWidth, rowHeight, 5.0 * scale, scale);
+      this.addControl(this.modeButtons);
+      y += rowHeight + 12.0 * scale;
+      this.addSlider(this.loadSlider, contentX, y, contentWidth, sliderHeight);
+      y += sliderHeight + 4.0 * scale;
+      y = this.layoutModeControls(contentX, y, contentWidth, sliderHeight, rowHeight, true);
     } else {
-      if (this.currentQSlider.visible) y = this.drawSliderAt(this.currentQSlider, contentX, y, contentWidth);
-      y = this.drawSliderAt(this.currentKpSlider, contentX, y, contentWidth);
-      y = this.drawSliderAt(this.currentKiSlider, contentX, y, contentWidth);
-      this.speedLoopCheckbox.setBounds(contentX, y, contentWidth, 22.0 * this.uiScale);
-      this.speedLoopCheckbox.drawControl(this.uiScale);
-      y += 27.0 * this.uiScale;
-      if (this.speedSlider.visible) {
-        y = this.drawSliderAt(this.speedSlider, contentX, y, contentWidth);
-        y = this.drawSliderAt(this.speedKpSlider, contentX, y, contentWidth);
-        y = this.drawSliderAt(this.speedKiSlider, contentX, y, contentWidth);
+      let visualChecks = this.visualisationCheckboxes();
+      for (const checkbox of visualChecks) {
+        checkbox.setBounds(contentX, y, contentWidth, rowHeight, scale);
+        this.addControl(checkbox);
+        y += rowHeight + 2.0 * scale;
       }
     }
 
-    y += 2.0 * this.uiScale;
-    fill(145, 159, 180);
-    textAlign(LEFT, TOP);
-    textSize(11.5 * this.uiScale * PANEL_FONT_SCALE);
-    text("ВИЗУАЛИЗАЦИЯ", contentX, y);
-    y += 21.0 * this.uiScale;
+    y += 8.0 * scale;
+    this.actionButtons.setBounds(contentX, y, contentWidth, rowHeight, 9.0 * scale, scale);
+    this.addControl(this.actionButtons);
+    y += rowHeight;
 
-    let columnGap = 12.0 * this.uiScale;
-    let columnWidth = (contentWidth - columnGap) * 0.5;
-    let visualChecks = [
-      this.voltageCheckbox, this.emfCheckbox, this.alphaBetaAxesCheckbox, this.dqAxesCheckbox,
-      this.alphaBetaProjectionCheckbox, this.dqProjectionCheckbox, this.lockDqCheckbox
-    ];
-    for (let i = 0; i < visualChecks.length; i++) {
-      // Processing truncated this division because i was an int; in JavaScript
-      // it yields half-row offsets, which staggered the two columns and made
-      // them overlap outright once the rows grew taller than the gap.
-      let row = floor(i / 2);
-      let column = i % 2;
-      let checkX = contentX + column * (columnWidth + columnGap);
-      let checkY = y + row * 25.0 * this.uiScale;
-      let checkWidth = columnWidth;
-      if (i == visualChecks.length - 1) checkWidth = contentWidth;
-      visualChecks[i].visible = true;
-      visualChecks[i].setBounds(checkX, checkY, checkWidth, 21.0 * this.uiScale);
-      visualChecks[i].drawControl(this.uiScale);
+    return y - originY + 18.0 * scale;
+  }
+
+  // -- rendering ------------------------------------------------------------
+
+  renderItems() {
+    for (const item of this.items) {
+      switch (item.kind) {
+        case "title":
+          fill(237, 242, 249);
+          textAlign(LEFT, TOP);
+          fittedTextSize(item.label, item.w, item.size, 12.0 * this.scale);
+          text(item.label, item.x, item.y);
+          break;
+        case "section":
+          fill(145, 159, 180);
+          textAlign(LEFT, TOP);
+          textSize(11.5 * this.scale * PANEL_FONT_SCALE);
+          text(item.label, item.x, item.y);
+          break;
+        case "status":
+          this.drawStatusCard(item.x, item.y, item.w, item.h);
+          break;
+        case "hint":
+          this.drawManualHint(item.x, item.y, item.w, item.h);
+          break;
+        case "control":
+          item.control.drawControl();
+          break;
+      }
     }
-
-    this.actionButtonY = area.y + area.h - 46.0 * this.uiScale;
-    this.actionButtonWidth = (contentWidth - 9.0 * this.uiScale) * 0.5;
-    this.drawActionButton(contentX, this.actionButtonY, this.actionButtonWidth, 32.0 * this.uiScale,
-      simulationPaused ? "Продолжить" : "Пауза", simulationPaused);
-    this.drawActionButton(contentX + this.actionButtonWidth + 9.0 * this.uiScale, this.actionButtonY,
-      this.actionButtonWidth, 32.0 * this.uiScale, "Сброс", false);
   }
 
-  drawSliderAt(slider, x, y, w) {
-    slider.setBounds(x, y, w, 39.0 * this.uiScale);
-    slider.drawControl(this.uiScale);
-    return y + 43.0 * this.uiScale;
-  }
-
-  drawModeButton(index, label) {
-    let x = this.modeButtonsX + index * (this.modeButtonWidth + 4.0 * this.uiScale);
-    let selected = this.settings.mode == index;
-    noStroke();
-    fill(selected ? color(49, 142, 178) : color(38, 46, 60));
-    rect(x, this.modeButtonsY, this.modeButtonWidth, this.modeButtonHeight, 5.0 * this.uiScale);
-    fill(selected ? color(247) : color(180, 192, 210));
-    textAlign(CENTER, CENTER);
-    textSize(11.2 * this.uiScale * PANEL_FONT_SCALE);
-    text(label, x + this.modeButtonWidth * 0.5, this.modeButtonsY + this.modeButtonHeight * 0.48);
-  }
-
-  drawManualVectorButton(vectorType, label) {
-    let x = this.manualVectorButtonsX
-      + vectorType * (this.manualVectorButtonWidth + 5.0 * this.uiScale);
-    let selected = this.settings.manualVectorType == vectorType;
-    noStroke();
-    fill(selected ? color(49, 142, 178) : color(38, 46, 60));
-    rect(x, this.manualVectorButtonsY, this.manualVectorButtonWidth,
-      this.manualVectorButtonHeight, 5.0 * this.uiScale);
-    fill(selected ? color(247) : color(180, 192, 210));
-    textAlign(CENTER, CENTER);
-    textSize(11.0 * this.uiScale * PANEL_FONT_SCALE);
-    text(label, x + this.manualVectorButtonWidth * 0.5,
-      this.manualVectorButtonsY + this.manualVectorButtonHeight * 0.48);
-  }
-
-  drawStatusCard(x, y, w, h, state,
-                      simulator) {
+  drawStatusCard(x, y, w, h) {
+    let state = this.lastState;
     noStroke();
     fill(28, 35, 47);
-    rect(x, y, w, h, 7.0 * this.uiScale);
+    rect(x, y, w, h, 7.0 * this.scale);
     let third = w / 3.0;
-    this.drawStatusValue(x + 10.0 * this.uiScale, y + 8.0 * this.uiScale,
-      "СКОРОСТЬ", this.formatPanelSpeed(rpmFromRadians(state.mechanicalSpeed))
-      + " об/мин");
-    this.drawStatusValue(x + third + 5.0 * this.uiScale, y + 8.0 * this.uiScale,
-      "ТОК", nf(sqrt(state.currentAlpha * state.currentAlpha + state.currentBeta * state.currentBeta), 1, 1) + " А");
-    this.drawStatusValue(x + 2.0 * third + 5.0 * this.uiScale, y + 8.0 * this.uiScale,
+    this.drawStatusValue(x + 10.0 * this.scale, y + 8.0 * this.scale,
+      "СКОРОСТЬ", this.formatPanelSpeed(rpmFromRadians(state.mechanicalSpeed)) + " об/мин");
+    this.drawStatusValue(x + third + 5.0 * this.scale, y + 8.0 * this.scale,
+      "ТОК", nf(sqrt(state.currentAlpha * state.currentAlpha
+        + state.currentBeta * state.currentBeta), 1, 1) + " А");
+    this.drawStatusValue(x + 2.0 * third + 5.0 * this.scale, y + 8.0 * this.scale,
       "МОМЕНТ", nf(state.electromagneticTorque, 1, 2) + " Н·м");
   }
 
@@ -435,90 +843,105 @@ class ControlPanel {
   drawStatusValue(x, y, caption, value) {
     fill(122, 139, 162);
     textAlign(LEFT, TOP);
-    textSize(9.5 * this.uiScale * PANEL_FONT_SCALE);
+    textSize(9.5 * this.scale * PANEL_FONT_SCALE);
     text(caption, x, y);
     fill(232, 238, 247);
-    textSize(13.0 * this.uiScale * PANEL_FONT_SCALE);
-    text(value, x, y + 19.0 * this.uiScale);
+    textSize(13.0 * this.scale * PANEL_FONT_SCALE);
+    text(value, x, y + 19.0 * this.scale);
   }
 
   drawManualHint(x, y, w, h) {
     noStroke();
     fill(29, 44, 55);
-    rect(x, y, w, h, 6.0 * this.uiScale);
+    rect(x, y, w, h, 6.0 * this.scale);
     fill(155, 207, 226);
     textAlign(LEFT, CENTER);
-    textSize(11.5 * this.uiScale * PANEL_FONT_SCALE);
+    textSize(11.5 * this.scale * PANEL_FONT_SCALE);
     let vectorName = this.settings.manualVectorType == MANUAL_VECTOR_CURRENT
       ? "тока — регуляторы поддерживают i*"
       : "напряжения — u* подаётся напрямую";
-    text("Нажмите и тяните мышь внутри статора,\nчтобы задать вектор " + vectorName + ".",
-      x + 11.0 * this.uiScale, y + h * 0.5);
+    // On a phone the stator is behind this very sheet, and the instruction is
+    // useless without saying so first.
+    let opening = this.compact
+      ? "Закройте настройки и тяните внутри статора,"
+      : "Нажмите и тяните внутри статора,";
+    // The box form measures from the top edge, so the card's own y goes in and
+    // the vertical CENTER alignment does the centring.
+    text(opening + "\nчтобы задать вектор " + vectorName + ".",
+      x + 11.0 * this.scale, y, w - 22.0 * this.scale, h);
   }
 
-  drawActionButton(x, y, w, h, label, active) {
-    noStroke();
-    fill(active ? color(158, 105, 47) : color(45, 55, 70));
-    rect(x, y, w, h, 5.0 * this.uiScale);
-    fill(226, 233, 242);
-    textAlign(CENTER, CENTER);
-    textSize(12.5 * this.uiScale * PANEL_FONT_SCALE);
-    text(label, x + w * 0.5, y + h * 0.48);
-  }
+  // -- input ----------------------------------------------------------------
 
   mousePressed(px, py) {
+    if (this.compact) return this.compactMousePressed(px, py);
     if (!this.lastArea.contains(px, py)) return false;
+    this.hitTestItems(px, py);
+    return true;
+  }
 
-    for (let i = 0; i < 3; i++) {
-      let x = this.modeButtonsX + i * (this.modeButtonWidth + 4.0 * this.uiScale);
-      if (px >= x && px <= x + this.modeButtonWidth
-          && py >= this.modeButtonsY && py <= this.modeButtonsY + this.modeButtonHeight) {
-        this.controller.setMode(i, motor.state);
+  compactMousePressed(px, py) {
+    if (this.settingsButton.press(px, py)) {
+      this.sheetOpen = !this.sheetOpen;
+      return true;
+    }
+    if (this.pauseButton.press(px, py)) {
+      simulationPaused = !simulationPaused;
+      return true;
+    }
+    if (!this.sheetOpen) return false;
+    if (py < this.sheetTop) {
+      // Tapping the machine behind the sheet dismisses it rather than starting
+      // a manual vector drag the finger cannot see.
+      this.sheetOpen = false;
+      return true;
+    }
+    if (!this.hitTestItems(px, py) && py <= this.sheetHeaderBottom) {
+      this.sheetDragStartY = py;
+    }
+    return true;
+  }
+
+  hitTestItems(px, py) {
+    for (const item of this.items) {
+      if (item.kind !== "control") continue;
+      let control = item.control;
+      if (control === this.modeButtons) {
+        let index = control.press(px, py);
+        if (index < 0) continue;
+        this.controller.setMode(index, motor.state);
         this.applyWidgetValues();
         return true;
       }
-    }
-
-    if (this.settings.mode == MODE_MANUAL
-        && py >= this.manualVectorButtonsY
-        && py <= this.manualVectorButtonsY + this.manualVectorButtonHeight) {
-      for (let vectorType = 0; vectorType < 2; vectorType++) {
-        let x = this.manualVectorButtonsX
-          + vectorType * (this.manualVectorButtonWidth + 5.0 * this.uiScale);
-        if (px >= x && px <= x + this.manualVectorButtonWidth) {
-          this.controller.setManualVectorType(vectorType);
-          return true;
-        }
-      }
-    }
-
-    for (const slider of this.allSliders) {
-      if (slider.press(px, py, this.uiScale)) {
-        this.applyWidgetValues();
+      if (control === this.manualVectorButtons) {
+        let index = control.press(px, py);
+        if (index < 0) continue;
+        this.controller.setManualVectorType(index);
         return true;
       }
-    }
-    for (const checkbox of this.allCheckboxes) {
-      if (checkbox.press(px, py)) {
+      if (control === this.tabButtons) {
+        let index = control.press(px, py);
+        if (index < 0) continue;
+        this.activeTab = index;
+        return true;
+      }
+      if (control === this.actionButtons) {
+        let index = control.press(px, py);
+        if (index < 0) continue;
+        if (index === 0) simulationPaused = !simulationPaused;
+        else resetSimulation();
+        return true;
+      }
+      if (control.press(px, py)) {
         this.applyWidgetValues();
-        if (checkbox == this.lockDqCheckbox) {
+        if (control === this.lockDqCheckbox) {
           // Capture the rotor angle at the actual click, before the next physics frame.
           motorView.updateReferenceFrame(motor.state);
         }
         return true;
       }
     }
-
-    let contentX = this.lastArea.x + 18.0 * this.uiScale;
-    if (py >= this.actionButtonY && py <= this.actionButtonY + 32.0 * this.uiScale) {
-      if (px >= contentX && px <= contentX + this.actionButtonWidth) {
-        simulationPaused = !simulationPaused;
-      } else if (px >= contentX + this.actionButtonWidth + 9.0 * this.uiScale
-          && px <= contentX + 2.0 * this.actionButtonWidth + 9.0 * this.uiScale) {
-        resetSimulation();
-      }
-    }
-    return true;
+    return false;
   }
 
   mouseDragged(px, py) {
@@ -526,12 +949,26 @@ class ControlPanel {
     for (const slider of this.allSliders) {
       handled |= slider.drag(px);
     }
-    if (handled) this.applyWidgetValues();
-    return handled || this.lastArea.contains(px, py);
+    if (handled) {
+      this.applyWidgetValues();
+      return true;
+    }
+    if (this.compact) {
+      if (this.sheetDragStartY !== null) {
+        if (py - this.sheetDragStartY > SHEET_DISMISS_DISTANCE * this.scale) {
+          this.sheetOpen = false;
+          this.sheetDragStartY = null;
+        }
+        return true;
+      }
+      return this.sheetOpen && py >= this.sheetTop;
+    }
+    return this.lastArea.contains(px, py);
   }
 
   mouseReleased() {
     for (const slider of this.allSliders) slider.release();
+    this.sheetDragStartY = null;
   }
 
   applyWidgetValues() {

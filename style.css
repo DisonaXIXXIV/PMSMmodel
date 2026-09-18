@@ -8,13 +8,39 @@ html,
 body,
 #app {
   width: 100%;
-  height: 100%;
+  /* 100dvh tracks the browser chrome on phones; 100vh stays as the fallback
+     for engines without dynamic viewport units. The page never scrolls, so the
+     dynamic unit settles immediately instead of oscillating with the URL bar. */
+  height: 100vh;
+  height: 100dvh;
   margin: 0;
   overflow: hidden;
 }
 
+body {
+  /* Drags inside the canvas belong to the widgets. Without this a slider drag
+     that overshoots the canvas pulls the page into a rubber-band scroll. */
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+}
+
 canvas {
   display: block;
+  /* The single most important mobile fix: the browser otherwise claims every
+     touch drag for scrolling and pinch-zooming before p5 ever sees it. */
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* The self-test page has no canvas and may be taller than the viewport. */
+body.diagnostics-page,
+body.diagnostics-page #app {
+  height: auto;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow: auto;
 }
 
 .diagnostics {

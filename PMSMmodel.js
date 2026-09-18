@@ -10,6 +10,11 @@ let controlPanel;
 let simulationPaused = false;
 let diagnosticsMode = false;
 
+// Phone screens report a device pixel ratio of 3 or more. Rendering the stator,
+// the vectors and the torque arcs into a buffer that large costs more than the
+// extra sharpness is worth at 60 FPS with ten physics steps per frame.
+const MAXIMUM_PIXEL_DENSITY = 2.0;
+
 function setup() {
   document.title = "PMSM — визуальная модель синхронной машины";
 
@@ -23,13 +28,34 @@ function setup() {
   }
 
   const runningInProcessing = typeof window.pde !== "undefined";
+  const viewport = viewportSize();
   const canvas = createCanvas(
-    runningInProcessing ? 1280 : windowWidth,
-    runningInProcessing ? 720 : windowHeight,
+    runningInProcessing ? 1280 : viewport.width,
+    runningInProcessing ? 720 : viewport.height,
   );
   const browserContainer = document.getElementById("app");
   if (browserContainer) canvas.parent(browserContainer);
+  pixelDensity(min(displayDensity(), MAXIMUM_PIXEL_DENSITY));
   frameRate(60);
+
+  // A long press inside the stator is a manual-vector drag, not a request for
+  // the context menu.
+  if (canvas.elt) {
+    canvas.elt.addEventListener("contextmenu", (event) => event.preventDefault());
+  }
+  // p5 2.x routes touches through pointer events, so mousePressed and friends
+  // already receive them and no touch handlers are needed. It does not report
+  // pointercancel to the sketch, though: when the system takes the pointer away
+  // mid-drag — an edge swipe, a notification, palm rejection — the widget would
+  // stay latched and keep following the next press. Release it ourselves.
+  window.addEventListener("pointercancel", pointerReleased);
+  window.addEventListener("blur", pointerReleased);
+  // windowResized alone misses the moment a phone finishes rotating: the new
+  // viewport is only reported once the rotation animation ends.
+  window.addEventListener("orientationchange", () => setTimeout(windowResized, 120));
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", windowResized);
+  }
 
   motorParameters = new MotorParameters();
   controlSettings = new ControlSettings(motorParameters);
@@ -53,25 +79,55 @@ function draw() {
   controlPanel.draw(sketchLayout.panelArea, motor, simulator);
 }
 
+// The container carries the viewport height, dynamic units included, so it is a
+// steadier source than windowHeight while a mobile URL bar collapses.
+function viewportSize() {
+  const container = document.getElementById("app");
+  const containerWidth = container ? container.clientWidth : 0;
+  const containerHeight = container ? container.clientHeight : 0;
+  return {
+    width: containerWidth > 0 ? containerWidth : windowWidth,
+    height: containerHeight > 0 ? containerHeight : windowHeight,
+  };
+}
+
 function windowResized() {
-  resizeCanvas(windowWidth, windowHeight);
+  if (diagnosticsMode) return;
+  const viewport = viewportSize();
+  if (abs(viewport.width - width) < 1.0 && abs(viewport.height - height) < 1.0) return;
+  resizeCanvas(viewport.width, viewport.height);
+}
+
+function pointerPressed(px, py) {
+  if (controlPanel.mousePressed(px, py)) return;
+  motorView.mousePressed(px, py, sketchLayout.motorArea, driveController);
+}
+
+function pointerDragged(px, py) {
+  if (controlPanel.mouseDragged(px, py)) return;
+  motorView.mouseDragged(px, py, sketchLayout.motorArea, driveController);
+}
+
+function pointerReleased() {
+  if (diagnosticsMode || !controlPanel) return;
+  controlPanel.mouseReleased();
+  motorView.mouseReleased();
 }
 
 function mousePressed() {
-  if (controlPanel.mousePressed(mouseX, mouseY)) return false;
-  motorView.mousePressed(mouseX, mouseY, sketchLayout.motorArea, driveController);
+  if (diagnosticsMode) return false;
+  pointerPressed(mouseX, mouseY);
   return false;
 }
 
 function mouseDragged() {
-  if (controlPanel.mouseDragged(mouseX, mouseY)) return false;
-  motorView.mouseDragged(mouseX, mouseY, sketchLayout.motorArea, driveController);
+  if (diagnosticsMode) return false;
+  pointerDragged(mouseX, mouseY);
   return false;
 }
 
 function mouseReleased() {
-  controlPanel.mouseReleased();
-  motorView.mouseReleased();
+  pointerReleased();
   return false;
 }
 
@@ -95,6 +151,7 @@ function resetSimulation() {
 }
 
 function showDiagnosticResult(failures) {
+  document.body.classList.add("diagnostics-page");
   const output = document.createElement("main");
   output.className = failures === 0 ? "diagnostics diagnostics--pass" : "diagnostics diagnostics--fail";
   output.textContent = failures === 0

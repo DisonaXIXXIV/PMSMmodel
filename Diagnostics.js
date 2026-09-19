@@ -36,6 +36,7 @@ function runSimulationDiagnostics() {
   testNegativeSpeedLoopStep();
   testCurrentAntiWindup();
   testGuiParameterReset();
+  testMotorParameterControls();
   testDemoProfiles();
   testThemePalettes();
   testStatorWinding();
@@ -271,6 +272,80 @@ function testGuiParameterReset() {
     diagnosticFailures++;
     console.log("FAIL: Reset control-selection/checkbox behavior");
   }
+}
+
+// Паспорт машины, который меняет карточка «Параметры двигателя». Проверяется
+// то, ради чего её и добавили: что изменённое ползунком значение действительно
+// попадает в уравнения. Ползунок пишет прямо в поле паспорта, и проверить это
+// можно только по поведению модели — переписанное поле, которое никто не
+// читает, выглядело бы ровно так же.
+//
+// Обмотка проверяется против аналитического решения. При неподвижном роторе и
+// постоянном напряжении по оси d ток по оси q остаётся нулевым, а значит,
+// нулевыми остаются и момент, и скорость: уравнение по оси d вырождается в
+// обычную RL-цепь, у которой id(t) = (U/R)·(1 − e^{−t·R/L}). Значит, и R, и L
+// проверяются точно, а не «стало больше — стало меньше».
+function testMotorParameterControls() {
+  // Одна индуктивность на обе оси: машина неявнополюсная, и ползунок в панели
+  // один. Если оси разойдутся, в формуле момента оживёт реактивное слагаемое.
+  let testParameters = new MotorParameters();
+  testParameters.statorInductance = 0.011;
+  diagnosticNear("The inductance slider reaches Ld", testParameters.inductanceD, 0.011, 1e-12);
+  diagnosticNear("The inductance slider reaches Lq", testParameters.inductanceQ, 0.011, 1e-12);
+
+  // Два набора: паспортный и вчетверо более «медленная» обмотка втрое большего
+  // сопротивления. Оба идут к своему установившемуся току U/R по своей
+  // постоянной времени L/R.
+  for (const winding of [{ resistance: 1.2, inductance: 0.006 },
+    { resistance: 3.6, inductance: 0.024 }]) {
+    let windingParameters = new MotorParameters();
+    windingParameters.statorResistance = winding.resistance;
+    windingParameters.statorInductance = winding.inductance;
+    let windingMotor = new PMSMModel(windingParameters);
+    let timeStep = 0.0001;
+    let steps = 50;
+    for (let step = 0; step < steps; step++) {
+      windingMotor.step(6.0, 0.0, 0.0, timeStep);
+    }
+    let elapsed = steps * timeStep;
+    let expected = (6.0 / winding.resistance)
+      * (1.0 - Math.exp(-elapsed * winding.resistance / winding.inductance));
+    diagnosticNear("The winding of " + winding.resistance + " Ohm and "
+      + winding.inductance * 1000.0 + " mH follows its own time constant",
+      windingMotor.state.currentD, expected, 0.002);
+    diagnosticNear("A current along d leaves the rotor standing",
+      windingMotor.state.mechanicalSpeed, 0.0, 1e-12);
+  }
+
+  // Момент инерции: та же машина под тем же напряжением, но вдвое тяжелее,
+  // разгоняется вдвое медленнее. Ровно половины не получается, и не должно:
+  // отстав по скорости, тяжёлая машина наводит меньшую противо-ЭДС, берёт
+  // чуть больший ток и развивает чуть больший момент — поэтому чуть больше
+  // половины. За 10 мс эта добавка ещё мала.
+  let speeds = [0.1, 0.2].map((inertia) => {
+    let inertiaParameters = new MotorParameters();
+    inertiaParameters.inertia = inertia;
+    let inertiaMotor = new PMSMModel(inertiaParameters);
+    for (let step = 0; step < 100; step++) {
+      inertiaMotor.step(0.0, 6.0, 0.0, 0.0001);
+    }
+    return inertiaMotor.state.mechanicalSpeed;
+  });
+  diagnosticTrue("The inertia slider reaches the mechanics", speeds[0] > 0.1);
+  diagnosticNear("Twice the inertia halves the acceleration",
+    speeds[1] / speeds[0], 0.51, 0.02);
+
+  // Сброс возвращает паспорт: эти три величины задаются из панели, а значит,
+  // кнопка «Сброс» отвечает за них так же, как за коэффициенты регуляторов.
+  let resetParameters = new MotorParameters();
+  resetParameters.statorResistance = 4.4;
+  resetParameters.statorInductance = 0.019;
+  resetParameters.inertia = 0.47;
+  resetParameters.resetTunableParameters();
+  diagnosticNear("Reset restores the resistance", resetParameters.statorResistance, 1.2, 1e-12);
+  diagnosticNear("Reset restores the inductance",
+    resetParameters.statorInductance, 0.006, 1e-12);
+  diagnosticNear("Reset restores the inertia", resetParameters.inertia, 0.1, 1e-12);
 }
 
 // Каждый профиль — это отдельная страница демонстрации, и ошибка в нём
@@ -519,21 +594,23 @@ function testModeDescriptions() {
   console.log("PASS: " + MODE_DESCRIPTIONS.length + " mode descriptions match the modes");
 }
 
-// Описания органов управления. Каждое называет поле ControlSettings, которым
-// орган управляет, и опечатка в имени ничем себя не выдаст: панель будет писать
-// в несуществующее поле, а регуляторы — читать нетронутое старое. Поэтому имена
-// сверяются с настройками целиком.
+// Описания органов управления. Каждое называет поле, которым орган управляет —
+// в настройках интерфейса или в паспорте машины, — и опечатка в имени ничем
+// себя не выдаст: панель будет писать в несуществующее поле, а регуляторы —
+// читать нетронутое старое. Поэтому имена сверяются с обоими объектами целиком.
 function testPanelControlDescriptions() {
   let testParameters = new MotorParameters();
   let testSettings = new ControlSettings(testParameters);
-  let sliders = panelSliderDescriptions(testParameters);
+  let sliders = panelSliderDescriptions(testParameters)
+    .concat(motorParameterSliderDescriptions());
   let descriptions = sliders
     .concat(PANEL_CHECKBOX_DESCRIPTIONS, VISUALISATION_CHECKBOX_DESCRIPTIONS);
   let failures = 0;
   let claimed = [];
 
   for (const description of descriptions) {
-    if (!(description.setting in testSettings)) {
+    let target = controlTarget(description, testSettings, testParameters);
+    if (!(description.setting in target)) {
       failures++;
       console.log("FAIL: control " + description.setting + " names no such setting");
     }
@@ -550,9 +627,11 @@ function testPanelControlDescriptions() {
 
   // Диапазон ползунка обязан вмещать значение по умолчанию. Иначе первый же
   // проход «настройки → разметка» подтянул бы значение к краю диапазона, и
-  // настройка изменилась бы сама, без единого действия человека.
+  // настройка изменилась бы сама, без единого действия человека. Сравнивается
+  // показанное значение: пределы ползунка заданы в тех же единицах, что и он.
   for (const slider of sliders) {
-    let value = testSettings[slider.setting];
+    let target = controlTarget(slider, testSettings, testParameters);
+    let value = sliderDisplayValue(slider, target[slider.setting]);
     if (value < slider.minimum || value > slider.maximum) {
       failures++;
       console.log("FAIL: the default of " + slider.setting + " (" + value
@@ -561,6 +640,14 @@ function testPanelControlDescriptions() {
     if (!(slider.step > 0.0)) {
       failures++;
       console.log("FAIL: slider " + slider.setting + " has no usable step");
+    }
+    // Перевод в единицы ползунка и обратно обязан возвращать то же число:
+    // иначе один проход «поле → разметка → поле» сдвигал бы настройку сам.
+    let restored = sliderStoredValue(slider, value);
+    if (Math.abs(restored - target[slider.setting]) > 1e-9) {
+      failures++;
+      console.log("FAIL: slider " + slider.setting + " does not survive its own scale ("
+        + target[slider.setting] + " → " + value + " → " + restored + ")");
     }
   }
 

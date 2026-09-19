@@ -290,9 +290,14 @@ function keyPressed(event) {
 // Сброс по клавише R, кнопке «Сброс» или сегменту полосы действий. Выбранный
 // режим и тип ручного вектора сохраняются, тема — тоже: она живёт в
 // localStorage и к параметрам модели не относится.
+//
+// Паспорт машины возвращается вместе с настройками: сопротивление,
+// индуктивность и момент инерции задаются из панели, а значит, это такой же
+// параметр интерфейса, как коэффициенты регуляторов.
 function resetSimulation() {
   motorView.mouseReleased();
   controlSettings.resetGuiParametersPreservingMode();
+  motorParameters.resetTunableParameters();
   motor.reset();
   driveController.reset();
   simulator.resetClock();

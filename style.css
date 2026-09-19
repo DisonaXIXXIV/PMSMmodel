@@ -369,6 +369,59 @@ body {
   border-left: 3px solid var(--mode-accent);
 }
 
+/* «Параметры двигателя» — дополнительное меню: паспорт машины нужен не в
+   каждом показе, поэтому карточка свёрнута, и её заголовок раскрывает
+   содержимое. Свёрнутой она занимает одну строку. */
+.panel__group--folding {
+  /* Свёрнутой карточке промежуток между строками не нужен: строка в ней одна,
+     а пустой зазор под заголовком читался бы как оборванное содержимое. */
+  gap: 0;
+}
+
+.panel__group--folding[open] {
+  gap: 8px;
+}
+
+.panel__summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: calc(var(--row-height) - 10px);
+  cursor: pointer;
+  /* Свой шеврон вместо треугольника браузера: он один и тот же во всех
+     движках и красится цветом заголовка. */
+  list-style: none;
+}
+
+/* В компактной компоновке заголовок — это цель для пальца, а не только
+   надпись: раскрывают карточку нажатием по нему. */
+:root[data-layout="compact"] .panel__summary {
+  min-height: var(--row-height);
+}
+
+.panel__summary::-webkit-details-marker {
+  display: none;
+}
+
+.panel__summary .icon {
+  width: 13px;
+  height: 13px;
+  transition: transform 0.15s ease;
+}
+
+/* Шеврон показывает состояние карточки: вниз — свёрнута, вверх — раскрыта. */
+.panel__group--folding[open] > .panel__summary .icon {
+  transform: rotate(180deg);
+}
+
+/* Движение выключается там, где его попросили выключить: поворот шеврона —
+   украшение, и без него карточка работает так же. */
+@media (prefers-reduced-motion: reduce) {
+  .panel__summary .icon {
+    transition: none;
+  }
+}
+
 .panel__group[hidden],
 .panel__subgroup[hidden],
 .field[hidden],

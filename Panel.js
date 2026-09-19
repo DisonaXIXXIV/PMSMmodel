@@ -80,6 +80,10 @@ function forcedLayoutMode() {
 // modes — в каких режимах орган нужен; пустой список означает «во всех».
 // speedLoop — нужен ли он только при включённом (true) или только при
 // выключенном (false) контуре скорости.
+// target — во что орган пишет: «settings» (по умолчанию) — в ControlSettings,
+// «parameters» — в паспорт машины MotorParameters.
+// scale — во сколько раз показанное значение больше хранимого; нужно одной
+// индуктивности, которая хранится в генри, а показывается в миллигенри.
 
 function panelSliderDescriptions(parameters) {
   return [
@@ -111,6 +115,53 @@ function panelSliderDescriptions(parameters) {
       minimum: 0.0, maximum: 100.0, step: 0.05, decimals: 2,
       modes: [MODE_VECTOR], speedLoop: true },
   ];
+}
+
+// Паспорт машины: сопротивление обмотки, её индуктивность и момент инерции.
+// Эти три ползунка пишут не в настройки, а прямо в MotorParameters — объект
+// паспорта один на программу, и модель с регуляторами читают его поля на
+// каждом шаге, поэтому изменение действует сразу.
+//
+// Диапазоны выбраны так, чтобы обе постоянные времени менялись на порядок в
+// обе стороны от паспортных, а решатель при этом оставался устойчивым: шаг
+// модели 100 мкс, и самая быстрая обмотка списка (1 мГн при 5 Ом) даёт
+// электрическую постоянную 0,2 мс — вдвое больше шага.
+//
+// Параметров машины список не спрашивает: пределы здесь не производные от
+// паспорта, а сами по себе — это те значения, между которыми паспорт и
+// двигают.
+function motorParameterSliderDescriptions() {
+  return [
+    { setting: "statorResistance", label: "Сопротивление обмотки", unit: " Ом",
+      minimum: 0.1, maximum: 5.0, step: 0.05, decimals: 2, target: "parameters" },
+    // Хранится в генри, показывается в миллигенри: ползунок в генри шёл бы
+    // шагом 0,0005 и читался бы как «0,0060 Гн».
+    { setting: "statorInductance", label: "Индуктивность обмотки", unit: " мГн",
+      minimum: 1.0, maximum: 30.0, step: 0.5, decimals: 1, scale: 1000.0,
+      target: "parameters" },
+    { setting: "inertia", label: "Момент инерции", unit: " кг·м²",
+      minimum: 0.01, maximum: 1.0, step: 0.005, decimals: 3, target: "parameters" },
+  ];
+}
+
+// Объект, которым управляет орган: настройки интерфейса или паспорт машины.
+// Одна функция на оба направления переноса — и на запись в обработчике
+// события, и на обратный проход в syncFromSettings.
+function controlTarget(description, settings, parameters) {
+  return description.target === "parameters" ? parameters : settings;
+}
+
+// Значение поля в единицах ползунка и обратно. Округление после умножения
+// убирает хвост двоичного представления: 0,006 · 1000 — это 6,000000000000001,
+// и без округления ползунок переписывался бы каждый кадр.
+function sliderDisplayValue(description, stored) {
+  let scale = description.scale === undefined ? 1.0 : description.scale;
+  return Number((stored * scale).toFixed(6));
+}
+
+function sliderStoredValue(description, shown) {
+  let scale = description.scale === undefined ? 1.0 : description.scale;
+  return shown / scale;
 }
 
 // Режимы управления: подпись на сегменте переключателя, значок над ней и
@@ -189,6 +240,26 @@ function panelCard(caption, modifier) {
   return card;
 }
 
+// Свёртываемая карточка: заголовок раскрывает её содержимое. Так сделана одна
+// карточка — «Параметры двигателя»: паспорт машины нужен не в каждом показе, и
+// развёрнутым он занял бы треть панели. Свёрнутая карточка — это одна строка.
+//
+// Раскрытие делает сам браузер элементом <details>: с клавиатуры заголовок
+// нажимается пробелом и Enter, экранный диктор объявляет его как раскрывающий
+// и называет состояние. Своей кнопкой со своим aria-expanded всё это пришлось
+// бы писать.
+function panelDisclosureCard(caption, modifier) {
+  let card = element("details", "panel__group panel__group--card panel__group--folding"
+    + (modifier === undefined ? "" : " " + modifier));
+  let summary = element("summary", "panel__section panel__summary");
+  // Шеврон вставляется разметкой, поэтому подпись кладётся отдельным узлом:
+  // текстом её после innerHTML уже не задать.
+  summary.innerHTML = iconMarkup("chevron");
+  summary.append(element("span", "panel__summary-label", caption));
+  card.append(summary);
+  return card;
+}
+
 // Значки полосы действий и переключателя режима. Раньше они рисовались на
 // полотне по точкам, потому что шрифта с такими символами могло не оказаться;
 // теперь это встроенный SVG — тот же рисунок, но он масштабируется вместе с
@@ -200,6 +271,9 @@ const TOOLBAR_ICONS = {
   pause: '<path d="M9 5v14M15 5v14"/>',
   play: '<path d="M8 5l11 7-11 7z" fill="currentColor" stroke="none"/>',
   reset: '<path d="M19 12a7 7 0 1 1-2.1-5"/><path d="M19 4v4h-4"/>',
+  // Шеврон свёртываемой карточки: вниз — свёрнута, вверх (повёрнут стилями) —
+  // раскрыта.
+  chevron: '<path d="M6 9.5l6 6 6-6"/>',
   settings: '<path d="M3 7h18M3 12h18M3 17h18"/>'
     + '<circle cx="8" cy="7" r="2" fill="currentColor"/>'
     + '<circle cx="15" cy="12" r="2" fill="currentColor"/>'
@@ -376,6 +450,7 @@ class ControlPanel {
   modeCard;
   tuningCard;
   tuningCaption;
+  motorCard;
   visualGroup;
   actions;
   toolbar;
@@ -558,6 +633,24 @@ class ControlPanel {
       this.tuningCard.append(this.buildCheckbox(description));
     }
     this.controlGroup.append(this.tuningCard);
+
+    // «Параметры двигателя»: паспорт машины. Карточка стоит последней и
+    // свёрнута — к показу привода её органы отношения не имеют, менять их
+    // нужно редко, а занимают они втрое больше места, чем выбор режима.
+    // Внутри — сопротивление и индуктивность обмотки (вместе они задают
+    // электрическую постоянную времени) и момент инерции (механическую).
+    this.motorCard = panelDisclosureCard("ПАРАМЕТРЫ ДВИГАТЕЛЯ");
+    for (const description of motorParameterSliderDescriptions()) {
+      this.motorCard.append(this.buildSlider(description));
+    }
+    // Коэффициенты контура скорости настроены для паспортного момента
+    // инерции и пропорциональны ему (см. ControlSettings): изменив J, их
+    // приходится менять следом, и без этой оговорки разъехавшийся переходный
+    // процесс выглядел бы ошибкой модели.
+    this.motorCard.append(element("p", "hint",
+      "Паспорт: 1,20 Ом, 6,0 мГн, 0,100 кг·м². Коэффициенты регуляторов"
+      + " настроены под эти значения и при других требуют пересчёта."));
+    this.controlGroup.append(this.motorCard);
   }
 
   buildVisualGroup() {
@@ -643,7 +736,10 @@ class ControlPanel {
 
     let slider = { description, row, input, value };
     input.addEventListener("input", () => {
-      this.settings[description.setting] = Number(input.value);
+      // Ползунок работает в показанных единицах, поле хранит свои: у
+      // индуктивности это миллигенри против генри, у остальных — одни и те же.
+      this.targetOf(description)[description.setting] =
+        sliderStoredValue(description, Number(input.value));
       this.updateSliderValue(slider);
       this.syncVisibility();
     });
@@ -782,7 +878,8 @@ class ControlPanel {
   // обратный проход нужен после сброса, смены режима и переключения клавишей.
   syncFromSettings() {
     for (const slider of this.sliders) {
-      let value = String(this.settings[slider.description.setting]);
+      let stored = this.targetOf(slider.description)[slider.description.setting];
+      let value = String(sliderDisplayValue(slider.description, stored));
       if (slider.input.value !== value) slider.input.value = value;
       this.updateSliderValue(slider);
     }
@@ -848,6 +945,12 @@ class ControlPanel {
     let tabbed = this.layout === LAYOUT_COMPACT;
     setHidden(this.controlGroup, tabbed && this.activeTab !== TAB_CONTROL);
     setHidden(this.visualGroup, tabbed && this.activeTab !== TAB_VISUALISATION);
+  }
+
+  // Куда орган пишет и откуда читается: настройки интерфейса или паспорт
+  // машины. Панель держит и то, и другое, и оба объекта общие с моделью.
+  targetOf(description) {
+    return controlTarget(description, this.settings, this.parameters);
   }
 
   selectButton(button, selected) {

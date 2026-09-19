@@ -40,6 +40,7 @@ function runSimulationDiagnostics() {
   testThemePalettes();
   testStatorWinding();
   testLayoutMode();
+  testModeDescriptions();
   testPanelControlDescriptions();
   testControlVisibilityRules();
   testManualVectorMapping();
@@ -476,6 +477,46 @@ function testLayoutMode() {
     resolveLayoutMode(800.0, 600.0) === LAYOUT_COMPACT);
   diagnosticTrue("A wide short window goes back to the desktop layout",
     resolveLayoutMode(1000.0, 600.0) === LAYOUT_DESKTOP);
+}
+
+// Описания режимов. Переключатель режима и заголовок карточки с параметрами
+// берут подпись, значок и название отсюда по номеру режима, поэтому запись
+// обязана стоять на своём месте: перепутанный порядок назвал бы выбранный режим
+// чужим именем, а забытый значок дал бы неопределённый ключ вместо разметки —
+// и то и другое видно только глазами, уже на открытой странице.
+function testModeDescriptions() {
+  let failures = 0;
+  let expected = [MODE_MANUAL, MODE_OPEN_LOOP, MODE_VECTOR];
+
+  if (MODE_DESCRIPTIONS.length !== expected.length) {
+    failures++;
+    console.log("FAIL: " + MODE_DESCRIPTIONS.length + " mode descriptions for "
+      + expected.length + " modes");
+  }
+  for (let index = 0; index < expected.length; index++) {
+    let description = MODE_DESCRIPTIONS[index];
+    if (description === undefined || description.mode !== expected[index]) {
+      failures++;
+      console.log("FAIL: mode description " + index + " does not describe mode "
+        + expected[index]);
+      continue;
+    }
+    if (!description.label || !description.tuning) {
+      failures++;
+      console.log("FAIL: mode " + expected[index] + " has no label or tuning caption");
+    }
+    if (TOOLBAR_ICONS[description.icon] === undefined) {
+      failures++;
+      console.log("FAIL: mode " + expected[index] + " names no such icon "
+        + description.icon);
+    }
+  }
+
+  if (failures > 0) {
+    diagnosticFailures += failures;
+    return;
+  }
+  console.log("PASS: " + MODE_DESCRIPTIONS.length + " mode descriptions match the modes");
 }
 
 // Описания органов управления. Каждое называет поле ControlSettings, которым

@@ -86,6 +86,39 @@ function motorViewFooterHeight(scale, compact) {
     + MOTOR_READOUT_BOTTOM_MARGIN * scale;
 }
 
+// Обмотка статора: двухполюсная трёхфазная распределённая. Шесть фазных зон по
+// 60 электрических градусов — A+, C−, B+, A−, C+, B−; каждая зона занимает
+// q = 3 соседних паза, отсюда и 18 пазов. Массив задаёт фазу каждой зоны, а
+// знак (направление стороны катушки) чередуется через зону, потому что вторая
+// половина обмотки — это обратные стороны тех же витков.
+const STATOR_SLOT_COUNT = 18;
+const STATOR_SLOTS_PER_BELT = 3;
+const STATOR_BELT_PHASES = [0, 2, 1, 0, 2, 1];
+// Фаза — это индекс и в этих двух списках: имя для подписи в пазу и ключ цвета
+// в палитре. Списками, а не цепочкой условий: у промаха мимо фазы не должно
+// быть «запасного» ответа, иначе ошибка индекса выглядит как обычная фаза C.
+const STATOR_PHASE_NAMES = ["A", "B", "C"];
+const STATOR_PHASE_COLOR_KEYS = ["phaseA", "phaseB", "phaseC"];
+
+// Чему принадлежит паз: фаза его зоны и направление тока в стороне катушки.
+// Принимает номер паза от 0 до STATOR_SLOT_COUNT − 1.
+//
+// Вынесено из отрисовки отдельной функцией, потому что это единственная часть
+// картинки статора, которую можно проверить без полотна — см. testStatorWinding
+// в Diagnostics.js.
+//
+// floor здесь обязателен: в Processing slot / 3 было целочисленным делением и
+// отбрасывало дробную часть само, а в JavaScript даёт 0,333 — и индекс
+// промахивался мимо STATOR_BELT_PHASES, отчего весь статор рисовался одной
+// фазой. Тот же перенос уже исправлялся в раскладке флажков (см. GUI.js).
+function statorSlotWinding(slot) {
+  let belt = floor(slot / STATOR_SLOTS_PER_BELT);
+  return {
+    phase: STATOR_BELT_PHASES[belt],
+    conductorDirection: belt % 2 === 0 ? 1 : -1,
+  };
+}
+
 // Вид машины. Состояние здесь только то, что нельзя вывести из модели:
 // геометрия текущего кадра, поворот системы наблюдения и признак того, что
 // сейчас тянут ручной вектор.
@@ -308,36 +341,27 @@ class MotorView {
     let speedFade = this.settings.lockDqFrame
       ? constrain(map(abs(rpmFromRadians(state.mechanicalSpeed)), 500.0, 3500.0, 1.0, 0.20), 0.20, 1.0)
       : 1.0;
-    let slotCount = 18;
-    // Шесть фазных зон по 60 электрических градусов — двухполюсная трёхфазная
-    // обмотка: A+, C−, B+, A−, C+, B−. Каждая зона занимает q = 3 соседних
-    // паза, отсюда и 18 пазов. Массив задаёт фазу каждой зоны, а знак
-    // (направление стороны катушки) чередуется через зону, потому что вторая
-    // половина обмотки — это обратные стороны тех же витков.
-    let beltPhases = [ 0, 2, 1, 0, 2, 1 ];
     let statorAngle = this.screenAngle(0.0);
-    for (let slot = 0; slot < slotCount; slot++) {
-      let angle = statorAngle + TWO_PI * slot / slotCount;
+    for (let slot = 0; slot < STATOR_SLOT_COUNT; slot++) {
+      let angle = statorAngle + TWO_PI * slot / STATOR_SLOT_COUNT;
       let inner = this.statorInnerRadius + this.outerRadius * 0.025;
       let outer = this.outerRadius * 0.95;
       strokeTheme(theme().statorSlot, 210.0 * speedFade);
       strokeWeight(max(1.0, this.outerRadius * 0.026));
       line(this.pointX(angle, inner), this.pointY(angle, inner), this.pointX(angle, outer), this.pointY(angle, outer));
 
-      let belt = slot / 3;
-      let phase = beltPhases[belt];
-      let conductorDirection = belt % 2 == 0 ? 1 : -1;
-      let phaseColor = phase == 0 ? themeColor(theme().phaseA)
-        : (phase == 1 ? themeColor(theme().phaseB) : themeColor(theme().phaseC));
-      this.drawCoilSide(angle, phaseColor, conductorDirection, speedFade);
+      let winding = statorSlotWinding(slot);
+      let phaseColor = themeColor(theme()[STATOR_PHASE_COLOR_KEYS[winding.phase]]);
+      this.drawCoilSide(angle, phaseColor, winding.conductorDirection, speedFade);
 
-      if (slot % 3 == 1) {
-        let phaseName = phase == 0 ? "A" : (phase == 1 ? "B" : "C");
+      // Подпись зоны ставится на её среднем пазе — одна на три паза.
+      if (slot % STATOR_SLOTS_PER_BELT === 1) {
+        let phaseName = STATOR_PHASE_NAMES[winding.phase];
         noStroke();
         fill(red(phaseColor), green(phaseColor), blue(phaseColor), 225.0 * speedFade);
         textAlign(CENTER, CENTER);
         textSize(max(8.0, this.outerRadius * 0.052));
-        text(phaseName + (conductorDirection > 0 ? "+" : "−"),
+        text(phaseName + (winding.conductorDirection > 0 ? "+" : "−"),
           this.pointX(angle, this.outerRadius * 0.895), this.pointY(angle, this.outerRadius * 0.895));
       }
     }

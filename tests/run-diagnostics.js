@@ -8,11 +8,14 @@
 // подключив тегами <script>.
 //
 // Отсюда два следствия, о которых стоит помнить, добавляя код:
-//   * новая математическая функция p5 в модели или регуляторах потребует
-//     заглушки в списке ниже, иначе тесты упадут на ReferenceError;
-//   * подключаются только файлы, не рисующие ничего. MotorView и GUI в этот
-//     список не входят и входить не могут: там вызовы отрисовки, которых без
-//     полотна не существует. Их проверяет открытие страницы ?self-test.
+//   * новая математическая функция p5 в модели, регуляторах или в проверяемой
+//     части раскладки потребует заглушки в списке ниже, иначе тесты упадут на
+//     ReferenceError;
+//   * MotorView и GUI подключаются наравне с остальными: выполнение их файлов
+//     только объявляет классы и функции и ничего не рисует. Рисовать без
+//     полотна по-прежнему нельзя, поэтому тесты вызывают из них лишь то, что
+//     считает, — раскладку, попадание нажатий, перевод координат. Всё
+//     остальное проверяет открытие страницы ?self-test.
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -28,6 +31,7 @@ Object.assign(globalThis, {
   abs: Math.abs,
   atan2: Math.atan2,
   cos: Math.cos,
+  floor: Math.floor,
   max: Math.max,
   min: Math.min,
   pow: Math.pow,
@@ -35,6 +39,7 @@ Object.assign(globalThis, {
   sin: Math.sin,
   sqrt: Math.sqrt,
   constrain: (value, minimum, maximum) => Math.min(Math.max(value, minimum), maximum),
+  lerp: (start, stop, amount) => start + (stop - start) * amount,
   nf: (value, _left, right) => Number(value).toFixed(right),
   str: String,
 });
@@ -44,7 +49,7 @@ Object.assign(globalThis, {
 // функции становятся глобальными, как в браузере.
 const root = path.resolve(__dirname, "..");
 for (const file of ["Theme.js", "MathUtils.js", "MotorModel.js", "Controllers.js", "Presets.js",
-  "Diagnostics.js"]) {
+  "MotorView.js", "GUI.js", "Diagnostics.js"]) {
   const source = fs.readFileSync(path.join(root, file), "utf8");
   vm.runInThisContext(source, { filename: file });
 }

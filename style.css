@@ -304,7 +304,10 @@ body {
   flex-direction: column;
   gap: 10px;
   overflow-y: auto;
-  padding: 14px var(--gutter);
+  /* Отступ снизу отдан кнопкам действий: они прижаты к нижнему краю, и
+     собственный отступ контейнера оставил бы под ними щель, в которую видно
+     уезжающее под кнопки содержимое. */
+  padding: 14px var(--gutter) 0;
   /* Цвет подложки под кнопками действий. Он разный у колонки и у шторки, а
      правило для них одно, поэтому передаётся переменной. */
   --surface: var(--panel-background);
@@ -333,6 +336,39 @@ body {
   gap: 10px;
 }
 
+/* Карточка темы. Панель разложена на «Машину», «Режим управления», «Параметры
+   режима» и «Визуализацию»: у каждой темы своя подложка, и по виду органа
+   видно, к чему он относится. Раньше всё шло одной лентой, и кнопка выбора
+   режима ничем не отличалась от кнопки настройки внутри режима. */
+.panel__group--card {
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-card);
+  background: var(--card-surface);
+}
+
+/* Заголовок стоит первым в карточке, и собственный отступ сверху ему там не
+   нужен: карточка уже отделена от соседней. */
+.panel__group--card > .panel__section {
+  margin-top: 0;
+}
+
+/* Выбор режима — единственный орган, который меняет поведение привода, а не
+   число в нём. Поэтому у его карточки свой, синеватый фон. */
+.panel__group--mode {
+  border-color: var(--mode-border);
+  background: var(--mode-surface);
+}
+
+/* Параметры выбранного режима. Полоса того же тёмно-синего по левому краю
+   привязывает карточку к переключателю режима над ней: это его продолжение, а
+   не ещё один равноправный набор кнопок. */
+.panel__group--tuning {
+  padding-left: 10px;
+  border-left: 3px solid var(--mode-accent);
+}
+
 .panel__group[hidden],
 .panel__subgroup[hidden],
 .field[hidden],
@@ -351,7 +387,7 @@ body {
   gap: 9px;
   margin-top: auto;
   padding-top: 10px;
-  padding-bottom: 2px;
+  padding-bottom: 14px;
   background: var(--surface);
   grid-template-columns: 1fr 1fr;
 }
@@ -542,6 +578,49 @@ body {
 .button.is-active {
   background: var(--button-fill-selected);
   color: var(--button-label-selected);
+}
+
+/* Подпись строки кнопок — такая же, как у ползунка рядом: и то и другое
+   настраивает выбранный режим. */
+.buttons__caption {
+  margin: 0;
+  color: var(--slider-label);
+  font-size: var(--font-body);
+}
+
+/* -- переключатель режима -------------------------------------------------- */
+
+/* Переключатель режима сделан одной деталью из сегментов — со своей дорожкой,
+   значками и тёмно-синей заливкой выбранного. Это не прихоть оформления: рядом
+   стоят голубые кнопки настройки режима, и раньше выбор режима выглядел так же,
+   как они. */
+.buttons--modes {
+  gap: 3px;
+  padding: 3px;
+  border-radius: var(--radius-control);
+  background: var(--mode-track);
+}
+
+.buttons--modes .buttons__item {
+  display: flex;
+  min-height: 48px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: transparent;
+  color: var(--mode-label);
+  font-size: 12.5px;
+}
+
+.buttons--modes .buttons__item.is-selected {
+  background: var(--mode-accent);
+  color: var(--mode-label-selected);
+}
+
+.buttons--modes .icon {
+  width: 18px;
+  height: 18px;
 }
 
 /* -- шторка компактной компоновки ----------------------------------------- */

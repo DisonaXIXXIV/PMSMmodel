@@ -25,6 +25,12 @@
 //   MachineStage      — надписи над машиной, легенда и показания под ней;
 //   ControlPanel      — органы управления: колонка справа или шторка снизу.
 //
+// Сами органы управления разложены по карточкам-темам: «Машина» (показания и
+// нагрузка), «Режим управления» (выбор режима), «Параметры режима» (то, что
+// настраивает выбранный) и «Визуализация». Это не оформление: пока всё шло
+// одной лентой одинаковых кнопок, по виду кнопки нельзя было понять, меняет
+// она режим работы или параметр внутри него.
+//
 // Настройки по-прежнему единственный посредник: панель в ControlSettings только
 // пишет, модель и регуляторы — только читают. Поэтому ни модель, ни регуляторы,
 // ни MotorView о разметке ничего не знают.
@@ -107,6 +113,19 @@ function panelSliderDescriptions(parameters) {
   ];
 }
 
+// Режимы управления: подпись на сегменте переключателя, значок над ней и
+// заголовок карточки с параметрами этого режима. Список идёт в порядке
+// MODE_MANUAL, MODE_OPEN_LOOP, MODE_VECTOR — номер режима и есть номер записи,
+// поэтому карточка параметров всегда называет тот режим, который выбран.
+const MODE_DESCRIPTIONS = [
+  { mode: MODE_MANUAL, label: "Ручной", icon: "pointer",
+    tuning: "ПАРАМЕТРЫ РУЧНОГО РЕЖИМА" },
+  { mode: MODE_OPEN_LOOP, label: "Разомкнутый", icon: "wave",
+    tuning: "ПАРАМЕТРЫ РАЗОМКНУТОГО РЕЖИМА" },
+  { mode: MODE_VECTOR, label: "Векторный", icon: "vector",
+    tuning: "ПАРАМЕТРЫ ВЕКТОРНОГО РЕЖИМА" },
+];
+
 // Флажок контура скорости стоит среди органов векторного режима, остальные —
 // в разделе «Визуализация», и к модели отношения не имеют.
 const PANEL_CHECKBOX_DESCRIPTIONS = [
@@ -157,9 +176,23 @@ function setHidden(node, hidden) {
   if (node.hidden !== hidden) node.hidden = hidden;
 }
 
-// Значки полосы действий. Раньше они рисовались на полотне по точкам, потому
-// что шрифта с такими символами могло не оказаться; теперь это встроенный SVG —
-// тот же рисунок, но он масштабируется вместе с кеглем и красится currentColor.
+// Карточка одной темы панели. Панель разложена на «Машину», «Режим
+// управления», «Параметры режима» и «Визуализацию»; каждая тема стоит на своей
+// подложке, и по виду органа видно, к чему он относится. Раньше всё это шло
+// одной лентой, и кнопка выбора режима выглядела так же, как кнопка выбора
+// ручного вектора внутри режима — то есть одинаково выглядели орган, меняющий
+// поведение привода, и орган, настраивающий это поведение.
+function panelCard(caption, modifier) {
+  let card = element("div", "panel__group panel__group--card"
+    + (modifier === undefined ? "" : " " + modifier));
+  if (caption !== undefined) card.append(element("h3", "panel__section", caption));
+  return card;
+}
+
+// Значки полосы действий и переключателя режима. Раньше они рисовались на
+// полотне по точкам, потому что шрифта с такими символами могло не оказаться;
+// теперь это встроенный SVG — тот же рисунок, но он масштабируется вместе с
+// кеглем и красится currentColor.
 const TOOLBAR_ICONS = {
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3'
     + 'M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/>',
@@ -171,6 +204,13 @@ const TOOLBAR_ICONS = {
     + '<circle cx="8" cy="7" r="2" fill="currentColor"/>'
     + '<circle cx="15" cy="12" r="2" fill="currentColor"/>'
     + '<circle cx="10" cy="17" r="2" fill="currentColor"/>',
+  // Режимы: указатель — задание ведёт мышь или палец, волна — вращающийся
+  // вектор заданной частоты, вектор на осях — векторное управление.
+  pointer: '<path d="M5 2.5V18l4-3.8 2.6 5.8 2.6-1.1-2.6-5.6h5.9z"/>',
+  wave: '<path d="M2.5 12c1.8-6.6 4.2-6.6 6 0s4.2 6.6 6 0"/>'
+    + '<path d="M16 12h5m-2.2-2.2L21 12l-2.2 2.2"/>',
+  vector: '<path d="M4.5 20V5M4.5 20h15"/><path d="M6.5 18L17 7.5"/>'
+    + '<path d="M17 7.5l-4.6.5M17 7.5l-.5 4.6"/>',
 };
 
 function iconMarkup(name) {
@@ -331,7 +371,11 @@ class ControlPanel {
   tabs;
   statusCard;
   statusValues = {};
-  modeGroup;
+  controlGroup;
+  machineCard;
+  modeCard;
+  tuningCard;
+  tuningCaption;
   visualGroup;
   actions;
   toolbar;
@@ -399,14 +443,17 @@ class ControlPanel {
     let title = element("h2", "panel__title", this.profile.panelTitle);
     this.tabs = this.buildTabs();
     this.statusCard = this.buildStatusCard();
-    this.modeGroup = element("div", "panel__group");
-    this.visualGroup = element("div", "panel__group");
+    // Вкладка «Управление» целиком: карточки «Машина», «Режим управления» и
+    // «Параметры режима». Прячется она одна, поэтому карточки лежат в ней, а
+    // не в содержимом панели по отдельности.
+    this.controlGroup = element("div", "panel__group");
+    this.visualGroup = panelCard("ВИЗУАЛИЗАЦИЯ");
     this.actions = this.buildActions();
 
-    this.buildModeGroup();
+    this.buildControlGroup();
     this.buildVisualGroup();
-    this.content.append(title, this.tabs, this.statusCard,
-      this.modeGroup, this.visualGroup, this.actions);
+    this.content.append(title, this.tabs,
+      this.controlGroup, this.visualGroup, this.actions);
     this.panelTitleNode = title;
   }
 
@@ -446,28 +493,51 @@ class ControlPanel {
     return card;
   }
 
-  buildModeGroup() {
+  // Три карточки вкладки «Управление» — по одной на тему. Разделены они не для
+  // красоты: до этого выбор режима и настройка выбранного режима стояли подряд
+  // одинаковыми голубыми кнопками, и по виду нельзя было понять, что меняет
+  // кнопка — сам режим работы или параметр внутри него.
+  buildControlGroup() {
+    let descriptions = panelSliderDescriptions(this.parameters);
+
+    // «Машина»: показания и момент нагрузки. Нагрузка действует в любом режиме
+    // и режимом не управляет, поэтому стоит не среди его органов, а рядом с
+    // теми числами, которые она и меняет.
+    this.machineCard = panelCard("МАШИНА");
+    for (const description of descriptions.filter((item) => item.common)) {
+      this.loadSliderRow = this.buildSlider(description);
+      this.machineCard.append(this.loadSliderRow);
+    }
+    this.controlGroup.append(this.machineCard);
+
+    // «Режим управления»: единственный орган, который меняет поведение привода,
+    // а не число в нём. И выглядит он иначе — сегментами со значками в
+    // тёмно-синей заливке, а не голубыми кнопками остальных органов.
     if (!this.profile.singleMode) {
-      this.modeGroup.append(element("h3", "panel__section", "РЕЖИМ УПРАВЛЕНИЯ"));
-      this.modeGroup.append(this.buildButtonRow("Режим управления",
-        ["Ручной", "Разомкнутый", "Векторный"], this.modeButtons,
+      this.modeCard = panelCard("РЕЖИМ УПРАВЛЕНИЯ", "panel__group--mode");
+      this.modeCard.append(this.buildButtonRow("Режим управления",
+        MODE_DESCRIPTIONS.map((item) => item.label), this.modeButtons,
         (index) => {
           this.controller.setMode(index, this.commands.motorState());
           this.syncFromSettings();
-        }));
+        },
+        { modifier: "buttons--modes", icons: MODE_DESCRIPTIONS.map((item) => item.icon) }));
+      this.controlGroup.append(this.modeCard);
     }
 
-    let descriptions = panelSliderDescriptions(this.parameters);
-    // Нагрузка действует во всех режимах и стоит до показаний, остальные
-    // ползунки — после них, вместе с органами своего режима.
-    for (const description of descriptions.filter((item) => item.common)) {
-      this.loadSliderRow = this.buildSlider(description);
-      this.modeGroup.append(this.loadSliderRow);
-    }
+    // «Параметры режима»: всё, что настраивает выбранный режим. Заголовок
+    // карточки называет его, а полоса тёмно-синего по левому краю привязывает
+    // карточку к переключателю над ней — это его продолжение, а не ещё один
+    // равноправный набор кнопок.
+    this.tuningCaption = element("h3", "panel__section");
+    this.tuningCard = panelCard(undefined, "panel__group--tuning");
+    this.tuningCard.append(this.tuningCaption);
 
     this.manualSection = element("div", "panel__subgroup");
     if (!this.profile.singleManualVector) {
-      this.manualSection.append(element("h3", "panel__section", "РУЧНОЕ ЗАДАНИЕ"));
+      // Подпись строки — такая же, как у ползунков рядом: это орган настройки
+      // режима, а не выбор режима, и выглядеть он должен как его соседи.
+      this.manualSection.append(element("p", "buttons__caption", "Ручное задание"));
       this.manualSection.append(this.buildButtonRow("Тип ручного вектора",
         ["Вектор тока", "Вектор напряжения"], this.manualVectorButtons,
         (index) => {
@@ -479,18 +549,18 @@ class ControlPanel {
     // картинке, и без подсказки догадаться об этом нельзя.
     this.hint = element("p", "hint");
     this.manualSection.append(this.hint);
-    this.modeGroup.append(this.manualSection);
+    this.tuningCard.append(this.manualSection);
 
     for (const description of descriptions.filter((item) => !item.common)) {
-      this.modeGroup.append(this.buildSlider(description));
+      this.tuningCard.append(this.buildSlider(description));
     }
     for (const description of PANEL_CHECKBOX_DESCRIPTIONS) {
-      this.modeGroup.append(this.buildCheckbox(description));
+      this.tuningCard.append(this.buildCheckbox(description));
     }
+    this.controlGroup.append(this.tuningCard);
   }
 
   buildVisualGroup() {
-    this.visualGroup.append(element("h3", "panel__section", "ВИЗУАЛИЗАЦИЯ"));
     let list = element("div", "checkboxes");
     for (const description of VISUALISATION_CHECKBOX_DESCRIPTIONS) {
       list.append(this.buildCheckbox(description, true));
@@ -617,14 +687,24 @@ class ControlPanel {
   // Строка кнопок равной ширины, из которых выбрана одна. Размечена как группа
   // переключателей: экранный диктор объявит и её название, и выбранный пункт, а
   // стрелками по ней можно ходить.
-  buildButtonRow(name, labels, store, onSelect) {
-    let row = element("div", "buttons");
+  //
+  // options.modifier меняет вид строки, options.icons добавляет над подписями
+  // значки. И то и другое нужно одному переключателю — выбору режима: он
+  // единственный меняет поведение привода, и выглядеть как соседние кнопки
+  // настройки ему нельзя.
+  buildButtonRow(name, labels, store, onSelect, options = {}) {
+    let row = element("div", options.modifier === undefined
+      ? "buttons" : "buttons " + options.modifier);
     row.setAttribute("role", "radiogroup");
     row.setAttribute("aria-label", name);
     for (let index = 0; index < labels.length; index++) {
-      let button = element("button", "buttons__item", labels[index]);
+      let button = element("button", "buttons__item");
       button.type = "button";
       button.setAttribute("role", "radio");
+      // Значок вставляется разметкой, поэтому подпись кладётся отдельным узлом:
+      // текстом её после innerHTML уже не задать.
+      if (options.icons !== undefined) button.innerHTML = iconMarkup(options.icons[index]);
+      button.append(element("span", "buttons__label", labels[index]));
       button.addEventListener("click", () => onSelect(index));
       store.push(button);
       row.append(button);
@@ -647,13 +727,14 @@ class ControlPanel {
     if (this.layout === LAYOUT_COMPACT) {
       // В шторке показания стоят в шапке, над вкладками с органами управления:
       // собственные показания машины в этот момент закрыты шторкой, и они
-      // должны быть видны на любой вкладке.
-      this.content.insertBefore(this.statusCard, this.modeGroup);
+      // должны быть видны на любой вкладке, а карточка «Машина» с ними лежит
+      // на вкладке «Управление».
+      this.content.insertBefore(this.statusCard, this.tabs);
       this.sheetBody.append(this.sheetHandle(), this.content);
     } else {
-      // В колонке — сразу под ползунком нагрузки, как и было у рисованной
-      // панели: рядом с тем, что эти числа меняет.
-      this.loadSliderRow.after(this.statusCard);
+      // В колонке — в карточке «Машина», над ползунком нагрузки: показания и
+      // то, чем их меняют, стоят рядом и не зависят от выбранного режима.
+      this.machineCard.insertBefore(this.statusCard, this.loadSliderRow);
       this.closeSheet();
       this.column.append(this.content);
     }
@@ -749,6 +830,9 @@ class ControlPanel {
       setHidden(checkbox.row, !controlApplies(checkbox.description, this.settings));
     }
     setHidden(this.manualSection, this.settings.mode !== MODE_MANUAL);
+    // Карточка параметров называет режим, которому они принадлежат: на странице
+    // отдельного режима переключателя над ней нет, и назвать его больше нечему.
+    setText(this.tuningCaption, MODE_DESCRIPTIONS[this.settings.mode].tuning);
 
     let vectorName = this.settings.manualVectorType === MANUAL_VECTOR_CURRENT
       ? "тока — регуляторы поддерживают i*"
@@ -762,7 +846,7 @@ class ControlPanel {
 
     // Вкладки действуют только в шторке: в широкой компоновке видны оба раздела.
     let tabbed = this.layout === LAYOUT_COMPACT;
-    setHidden(this.modeGroup, tabbed && this.activeTab !== TAB_CONTROL);
+    setHidden(this.controlGroup, tabbed && this.activeTab !== TAB_CONTROL);
     setHidden(this.visualGroup, tabbed && this.activeTab !== TAB_VISUALISATION);
   }
 

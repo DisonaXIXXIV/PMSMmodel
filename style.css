@@ -1,29 +1,49 @@
-/* Таблица стилей страницы. Интерфейса здесь нет: и машина, и панель рисуются
-   на полотне средствами p5.js, поэтому CSS отвечает только за три вещи —
-   страница занимает окно целиком и не прокручивается, полотно получает все
-   касания, и страница самотестирования (у неё полотна нет) читается.
+/* Таблица стилей страницы.
 
-   Ни одного цвета в этом файле: значения переменных выставляет Theme.js из
-   активной палитры, а запасные — на случай, если скрипт ещё не выполнился, —
-   совпадают с тёмной темой. */
+   На полотне рисуется только машина; заголовки, легенда, показания и вся панель
+   управления — обычная разметка, и раскладывает её этот файл. Раньше то же самое
+   считалось в JavaScript прямоугольник за прямоугольником; здесь вместо этого
+   две компоновки, которые различает атрибут data-layout на <html>.
+
+   Ни одного цвета в файле не записано: значения переменных выставляет Theme.js
+   из активной палитры (см. applyThemeToDocument). Запасные значения у немногих
+   переменных совпадают с тёмной темой — они нужны на тот случай, если скрипт
+   ещё не выполнился, чтобы страница не мигнула белым. */
+
 :root {
   color-scheme: dark;
   font-family: Arial, Helvetica, sans-serif;
-  background: var(--page-background, rgb(16, 20, 28));
+  background: var(--app-background, rgb(16, 20, 28));
+
+  /* Размеры интерфейса. Вынесены переменными, потому что компактная компоновка
+     меняет их все разом, а не каждое правило по отдельности. */
+  --gutter: 18px;
+  --radius-card: 8px;
+  --radius-control: 6px;
+  --row-height: 34px;
+  --font-body: 14px;
+  --font-small: 12px;
+  --font-section: 11.5px;
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
 }
 
+/* Компактная компоновка рассчитана на палец: строки выше, отступы крупнее.
+   44 px — размер комфортной цели касания, на котором сходятся рекомендации
+   обеих мобильных платформ. */
+:root[data-layout="compact"] {
+  --gutter: 16px;
+  --row-height: 44px;
+  --font-body: 15px;
+}
+
 html,
-body,
-#app {
+body {
   width: 100%;
   /* 100dvh следит за интерфейсом браузера на телефонах; 100vh остаётся
-     запасным вариантом для движков без динамических единиц. Страница не
-     прокручивается, поэтому динамическая единица сразу устанавливается, а не
-     колеблется вместе с адресной строкой. */
+     запасным вариантом для движков без динамических единиц. */
   height: 100vh;
   height: 100dvh;
   margin: 0;
@@ -31,14 +51,72 @@ body,
 }
 
 body {
-  /* Протягивания внутри полотна принадлежат виджетам. Без этого движение
-     ползунка, ушедшее за край полотна, утягивало бы страницу в упругую
-     прокрутку. */
+  display: flex;
+  /* Протягивания внутри полотна принадлежат машине. Без этого движение пальца,
+     ушедшее за край, утягивало бы страницу в упругую прокрутку. */
   overscroll-behavior: none;
   -webkit-text-size-adjust: 100%;
+  color: var(--readout-text, rgb(194, 205, 220));
 }
 
-canvas {
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Фокус виден везде и в обеих темах: у рисованной панели его не было вовсе, и
+   это была главная причина, по которой с клавиатуры она не работала. */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* -- сторона машины ------------------------------------------------------- */
+
+#stage {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--motor-background);
+}
+
+.stage__caption {
+  flex: 0 0 auto;
+  padding: 14px var(--gutter) 0;
+}
+
+.stage__title {
+  margin: 0;
+  color: var(--motor-title);
+  font-size: clamp(17px, 2.1vw, 25px);
+  font-weight: normal;
+  line-height: 1.2;
+}
+
+.stage__subtitle {
+  margin: 4px 0 0;
+  color: var(--motor-subtitle);
+  font-size: var(--font-small);
+}
+
+.stage__note {
+  margin: 2px 0 0;
+  color: var(--motor-note);
+  font-size: var(--font-small);
+  line-height: 1.35;
+}
+
+/* Полотно занимает всё, что осталось между надписями и показаниями. Его размер
+   и есть размер картинки: p5 берёт его у этого элемента (см. viewportSize). */
+#app {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+#app canvas {
   display: block;
   /* Самая важная строка для телефонов: иначе браузер забирает каждое движение
      пальца себе — на прокрутку и масштабирование щипком — и до p5 оно просто
@@ -49,27 +127,529 @@ canvas {
   user-select: none;
 }
 
-/* У страницы самотестирования полотна нет, а текста может оказаться больше,
-   чем высота окна: ей прокрутка как раз нужна. Класс на body ставит
-   showDiagnosticResult в PMSMmodel.js. */
-body.diagnostics-page,
-body.diagnostics-page #app {
+.stage__footer {
+  flex: 0 0 auto;
+  padding: 0 var(--gutter) var(--gutter);
+}
+
+/* -- легенда -------------------------------------------------------------- */
+
+/* Элементы переносятся сами: раньше их ширина измерялась, а кегль подбирался в
+   цикле, пока они не улягутся в отведённые строки. */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+  color: var(--legend-label);
+  font-size: 13px;
+}
+
+.legend__item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.legend__marker {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+/* -- показания ------------------------------------------------------------ */
+
+.readout {
+  position: relative;
+  border-radius: var(--radius-card);
+  background: var(--readout-card);
+  color: var(--readout-text);
+}
+
+.readout__grid {
+  display: grid;
+  gap: 6px 10px;
+  margin: 0;
+  padding: 11px 12px;
+  font-size: var(--font-small);
+  /* Широкая компоновка: три колонки в два ряда. */
+  grid-template-columns: repeat(3, 1fr);
+}
+
+:root[data-layout="compact"] .readout__grid {
+  /* Шесть значений в одну строку при ширине телефона не встанут, а уменьшать их
+     до нужного размера — значит потерять смысл компактной компоновки. Две
+     колонки держат механические величины слева, электрические справа. */
+  grid-template-columns: repeat(2, 1fr);
+  /* Заполнять по колонкам, а не по строкам: механические величины остаются
+     слева, электрические справа, как и было у рисованных показаний. */
+  grid-auto-flow: column;
+  grid-template-rows: repeat(3, auto);
+  font-size: 13px;
+}
+
+.readout__cell {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+
+.readout__name,
+.readout__value {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.readout__name::after {
+  content: " =";
+}
+
+.readout__paused {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  margin: 0;
+  color: var(--paused-mark);
+  font-size: var(--font-small);
+}
+
+/* Полоса действий — часть карточки показаний, а не кнопки поверх машины. В
+   широкой компоновке её нет: те же действия стоят кнопками внизу панели. */
+.readout__toolbar {
+  display: none;
+  border-top: 1px solid var(--dock-divider);
+  margin: 0 10px;
+}
+
+:root[data-layout="compact"] .readout__toolbar {
+  display: block;
+}
+
+.toolbar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.toolbar__button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 7px 2px;
+  border: 0;
+  border-radius: var(--radius-control);
+  margin: 4px 2px;
+  background: transparent;
+  color: var(--toolbar-glyph);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10.5px;
+}
+
+/* Разделители между соседними сегментами: это одна деталь, разделённая
+   линиями, а не четыре отдельные кнопки. Рядом с подсветкой линия лишняя — её
+   роль там играет край подложки. */
+.toolbar__button + .toolbar__button {
+  box-shadow: inset 1px 0 0 var(--dock-divider);
+}
+
+.toolbar__button.is-active,
+.toolbar__button.is-active + .toolbar__button {
+  box-shadow: none;
+}
+
+.toolbar__button.is-active {
+  background: var(--toolbar-active-fill);
+  color: var(--toolbar-active-glyph);
+}
+
+.toolbar__label {
+  color: var(--toolbar-label);
+}
+
+.toolbar__button.is-active .toolbar__label {
+  color: var(--toolbar-active-label);
+}
+
+.icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* -- панель управления ---------------------------------------------------- */
+
+.panel {
+  display: contents;
+}
+
+.panel__column {
+  display: flex;
+  flex: 0 0 50%;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--panel-divider);
+  background: var(--panel-background);
+}
+
+:root[data-layout="compact"] .panel__column {
+  display: none;
+}
+
+.panel__content {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding: 14px var(--gutter);
+  /* Цвет подложки под кнопками действий. Он разный у колонки и у шторки, а
+     правило для них одно, поэтому передаётся переменной. */
+  --surface: var(--panel-background);
+}
+
+.panel__title {
+  margin: 0;
+  color: var(--panel-title);
+  font-size: 22px;
+  font-weight: normal;
+  line-height: 1.2;
+}
+
+.panel__section {
+  margin: 6px 0 0;
+  color: var(--panel-section);
+  font-size: var(--font-section);
+  font-weight: normal;
+  letter-spacing: 0.04em;
+}
+
+.panel__group,
+.panel__subgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.panel__group[hidden],
+.panel__subgroup[hidden],
+.field[hidden],
+.check[hidden] {
+  display: none;
+}
+
+/* Кнопки «Пауза» и «Сброс» прижаты к нижнему краю: они нужны всегда и не должны
+   прыгать вместе со сменой режима. Когда органов управления столько, что панель
+   приходится прокручивать (векторный режим с контуром скорости), кнопки
+   остаются на виду — иначе за них пришлось бы прокручивать. */
+.actions {
+  position: sticky;
+  bottom: 0;
+  display: grid;
+  gap: 9px;
+  margin-top: auto;
+  padding-top: 10px;
+  padding-bottom: 2px;
+  background: var(--surface);
+  grid-template-columns: 1fr 1fr;
+}
+
+/* -- карточка показаний в панели ------------------------------------------ */
+
+.status {
+  display: grid;
+  padding: 9px 11px;
+  border-radius: 7px;
+  background: var(--status-card);
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.status__caption {
+  margin: 0;
+  color: var(--status-caption);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
+
+.status__value {
+  margin: 5px 0 0;
+  color: var(--status-value);
+  font-size: 15px;
+}
+
+/* -- подсказка ручного режима --------------------------------------------- */
+
+.hint {
+  margin: 0;
+  padding: 11px 12px;
+  border-radius: var(--radius-control);
+  background: var(--hint-card);
+  color: var(--hint-text);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* -- ползунок ------------------------------------------------------------- */
+
+/* Подпись слева, значение справа, дорожка на всю ширину под ними. */
+.field {
+  display: grid;
+  align-items: baseline;
+  gap: 2px 8px;
+  grid-template-columns: 1fr auto;
+}
+
+.field__label {
+  color: var(--slider-label);
+  font-size: var(--font-body);
+}
+
+.field__value {
+  color: var(--slider-label);
+  font-size: var(--font-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.slider {
+  width: 100%;
+  height: var(--row-height);
+  margin: 0;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  grid-column: 1 / -1;
+}
+
+/* Заполненная часть дорожки рисуется градиентом с резкой границей: отдельного
+   псевдокласса для неё нет нигде, кроме Firefox, а долю в процентах кладёт в
+   переменную сама панель (см. updateSliderValue).
+
+   Правила намеренно разделены. Псевдоэлемент чужого движка делает весь список
+   селекторов недействительным, и одно правило на оба означало бы, что дорожки
+   не будет ни в одном браузере. */
+.slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right,
+    var(--slider-fill) 0 var(--progress, 0%),
+    var(--slider-track) var(--progress, 0%) 100%);
+}
+
+.slider::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right,
+    var(--slider-fill) 0 var(--progress, 0%),
+    var(--slider-track) var(--progress, 0%) 100%);
+}
+
+.slider::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 50%;
+  margin-top: -6px;
+  appearance: none;
+  background: var(--slider-handle);
+}
+
+.slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--slider-handle);
+}
+
+.slider:active::-webkit-slider-thumb {
+  background: var(--slider-handle-active);
+}
+
+.slider:active::-moz-range-thumb {
+  background: var(--slider-handle-active);
+}
+
+/* -- флажок --------------------------------------------------------------- */
+
+.checkboxes {
+  display: grid;
+  gap: 2px 12px;
+  /* Широкая компоновка: две колонки. В компактной — одна строка на флажок, так
+     цель касания занимает всю ширину. */
+  grid-template-columns: 1fr 1fr;
+}
+
+:root[data-layout="compact"] .checkboxes {
+  grid-template-columns: 1fr;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: var(--row-height);
+  color: var(--checkbox-label);
+  cursor: pointer;
+  font-size: var(--font-body);
+}
+
+.check__input {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  border: 1px solid var(--checkbox-border);
+  border-radius: 3px;
+  margin: 0;
+  appearance: none;
+  background: var(--checkbox-fill);
+  cursor: pointer;
+}
+
+.check__input:checked {
+  border-color: var(--checkbox-mark);
+  background: var(--checkbox-mark);
+  box-shadow: inset 0 0 0 3px var(--checkbox-fill);
+}
+
+/* -- кнопки --------------------------------------------------------------- */
+
+/* Строка кнопок равной ширины: и переключатели, где выбран ровно один пункт, и
+   пара «Пауза»/«Сброс», где не выбрано ничего. */
+.buttons {
+  display: flex;
+  gap: 5px;
+}
+
+.buttons__item,
+.button {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: var(--row-height);
+  padding: 7px 6px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--button-fill);
+  color: var(--button-label);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.buttons__item.is-selected,
+.button.is-active {
+  background: var(--button-fill-selected);
+  color: var(--button-label-selected);
+}
+
+/* -- шторка компактной компоновки ----------------------------------------- */
+
+.sheet {
+  position: fixed;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  inset: 0;
+}
+
+.sheet[hidden] {
+  display: none;
+}
+
+.sheet__scrim {
+  position: absolute;
+  background: var(--sheet-scrim);
+  inset: 0;
+}
+
+.sheet__body {
+  position: relative;
+  display: flex;
+  max-height: 88%;
+  min-height: 30%;
+  flex-direction: column;
+  border-radius: 18px 18px 0 0;
+  background: var(--sheet-background);
+}
+
+/* Высота шторки складывается из её содержимого и упирается в долю экрана,
+   дальше содержимое прокручивается. Раньше раскладка выполнялась вхолостую,
+   чтобы измерить нужную высоту, потом строки сжимались, и раскладка повторялась
+   до трёх раз. */
+.sheet .panel__content {
+  padding-top: 6px;
+  --surface: var(--sheet-background);
+}
+
+.sheet .panel__title {
+  display: none;
+}
+
+.sheet__handle {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 4px;
+  border-radius: 2px;
+  margin: 8px auto 0;
+  background: var(--sheet-handle);
+  cursor: grab;
+  touch-action: none;
+}
+
+.tabs {
+  display: flex;
+  gap: 5px;
+}
+
+.tabs__button {
+  flex: 1 1 0;
+  min-height: var(--row-height);
+  padding: 7px 6px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--button-fill);
+  color: var(--button-label);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.tabs__button.is-selected {
+  background: var(--button-fill-selected);
+  color: var(--button-label-selected);
+}
+
+/* Вкладки нужны только шторке: в широкой компоновке оба раздела видны сразу. */
+:root[data-layout="desktop"] .tabs {
+  display: none;
+}
+
+/* -- страница самотестирования -------------------------------------------- */
+
+/* У неё нет ни полотна, ни панели, а текста может оказаться больше, чем высота
+   окна: ей прокрутка как раз нужна. Класс на body ставит showDiagnosticResult. */
+body.diagnostics-page {
+  display: block;
   height: auto;
   min-height: 100vh;
   min-height: 100dvh;
   overflow: auto;
 }
 
-/* Карточка с итогом самотестирования: единственный видимый элемент разметки во
-   всей программе. Цвета — те же, что у полотна, через переменные Theme.js. */
+body.diagnostics-page #stage {
+  display: none;
+}
+
 .diagnostics {
-  box-sizing: border-box;
   width: min(680px, calc(100% - 40px));
-  margin: 60px auto;
   padding: 24px;
   border: 1px solid currentColor;
-  border-radius: 8px;
-  background: var(--diagnostics-background, rgb(23, 29, 39));
+  border-radius: var(--radius-card);
+  margin: 60px auto;
+  background: var(--diagnostics-card, rgb(23, 29, 39));
   font-size: 18px;
 }
 

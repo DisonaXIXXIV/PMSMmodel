@@ -7,7 +7,13 @@
     <link rel="stylesheet" href="../style.css">
   </head>
   <body>
-    <main id="app"></main>
+    <!-- Полотно и то, что его окружает. На полотне рисуется только машина;
+         надписи над ней, легенду, показания и панель управления строит
+         Panel.js — повторять эту разметку в каждой странице режима значило
+         бы править их все при любом её изменении. -->
+    <main id="stage">
+      <div id="app"></div>
+    </main>
 
     <!-- Страница одного режима: разомкнутое управление. Код тот же, что и у полной
          программы в корне проекта, и скрипты берутся оттуда же — здесь нет ни
@@ -28,7 +34,7 @@
     <script src="../Presets.js"></script>
     <script src="../Simulation.js"></script>
     <script src="../MotorView.js"></script>
-    <script src="../GUI.js"></script>
+    <script src="../Panel.js"></script>
     <script src="../Diagnostics.js"></script>
     <script src="../PMSMmodel.js"></script>
   </body>

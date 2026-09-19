@@ -102,6 +102,9 @@ const DARK_PALETTE = {
   sheetScrim: [8, 11, 16, 190],
   sheetBackground: [23, 28, 38],
   sheetHandle: [84, 97, 117],
+  // Кольцо фокуса: у рисованной панели фокуса не было вовсе, у разметки он
+  // есть и должен быть виден в обеих темах.
+  focusRing: [110, 190, 235],
 };
 
 // Светлая тема повторяет ту же роль каждого цвета: фоны и тексты меняются
@@ -189,6 +192,9 @@ const LIGHT_PALETTE = {
   sheetScrim: [16, 22, 32, 120],
   sheetBackground: [255, 255, 255],
   sheetHandle: [178, 188, 204],
+  // Кольцо фокуса: у рисованной панели фокуса не было вовсе, у разметки он
+  // есть и должен быть виден в обеих темах.
+  focusRing: [24, 104, 148],
 };
 
 const THEME_PALETTES = {
@@ -196,15 +202,14 @@ const THEME_PALETTES = {
   [THEME_LIGHT]: LIGHT_PALETTE,
 };
 
-// Цвета страницы, которые нужны CSS: полотно рисует p5, а фон документа и
-// карточку самотестирования — таблица стилей. Чтобы палитра осталась
-// единственным источником, значения отдаются в CSS переменные.
-const THEME_CSS_VARIABLES = {
-  "--page-background": "appBackground",
-  "--diagnostics-background": "diagnosticsCard",
-  "--diagnostics-pass": "diagnosticsPass",
-  "--diagnostics-fail": "diagnosticsFail",
-};
+// Палитра отдаётся в CSS целиком. Полотно рисует p5, а панель управления,
+// показания и надписи — обычная разметка, и красит их таблица стилей; чтобы
+// цвет по-прежнему был записан в одном месте, каждая запись палитры становится
+// переменной CSS. Имя получается из имени записи: panelBackground →
+// --panel-background.
+function cssVariableName(key) {
+  return "--" + key.replace(/[A-Z]/g, (letter) => "-" + letter.toLowerCase());
+}
 
 // Текущая тема. Одна на всю программу: полотно одно, и рисовать его частями в
 // разных темах незачем.
@@ -311,14 +316,16 @@ function storeThemePreference(name) {
   }
 }
 
-// Передача цветов в документ: атрибут data-theme (по нему таблица стилей
-// меняет color-scheme) и CSS-переменные из THEME_CSS_VARIABLES.
+// Передача цветов в документ: атрибут data-theme (по нему таблица стилей меняет
+// color-scheme) и вся палитра переменными CSS. Переключение темы — это один
+// проход по палитре: переменные меняются, и разметка перекрашивается сама.
 function applyThemeToDocument() {
   if (typeof document === "undefined" || !document.documentElement) return;
   let root = document.documentElement;
   root.setAttribute("data-theme", activeThemeName);
-  for (const [variable, key] of Object.entries(THEME_CSS_VARIABLES)) {
-    root.style.setProperty(variable, cssColor(theme()[key]));
+  let palette = theme();
+  for (const key of Object.keys(palette)) {
+    root.style.setProperty(cssVariableName(key), cssColor(palette[key]));
   }
 }
 

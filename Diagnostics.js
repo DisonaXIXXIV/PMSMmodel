@@ -23,7 +23,7 @@ let diagnosticFailures = 0;
 // Полный прогон. Возвращает число ошибок: ноль — всё прошло. Порядок
 // примерно от простого к сложному — преобразование координат, режимы
 // управления, защита регуляторов, затем то, что относится не к физике, а к
-// устройству программы, и в конце — раскладка и разбор нажатий.
+// устройству программы, и в конце — компоновка, состав панели и картинка.
 function runSimulationDiagnostics() {
   diagnosticFailures = 0;
   console.log("=== PMSM simulation diagnostics ===");
@@ -39,12 +39,9 @@ function runSimulationDiagnostics() {
   testDemoProfiles();
   testThemePalettes();
   testStatorWinding();
-  testLineFlow();
-  testSketchLayout();
-  testDockGeometry();
-  testSliderMapping();
-  testButtonRowHitTest();
-  testToolbarHitTest();
+  testLayoutMode();
+  testPanelControlDescriptions();
+  testControlVisibilityRules();
   testManualVectorMapping();
   testReferenceFrameLock();
 
@@ -406,14 +403,13 @@ function testThemePalettes() {
     + " colours (" + names.join(", ") + ")");
 }
 
-// -- раскладка и разбор нажатий ---------------------------------------------
+// -- интерфейс ---------------------------------------------------------------
 //
-// Ниже — тесты той половины программы, которая рисует. Целиком её без полотна
-// не проверить, но считает она заметно больше, чем рисует: выбор компоновки,
-// расстановка виджетов, попадание нажатий и перевод точки полотна в физическую
-// величину — обычные функции, которым полотно не нужно. Они и проверяются;
-// всё, что действительно рисует, по-прежнему остаётся на открытие страницы
-// ?self-test.
+// Панель управления, показания и надписи теперь разметка, и попадание нажатий,
+// перенос строк и высоту шторки считает браузер — проверять тут больше нечего.
+// Осталось то, что решает сама программа: какая компоновка нужна окну, какие
+// органы управления нужны режиму и с какими настройками они связаны. Плюс то,
+// что по-прежнему живёт на полотне: обмотка статора и перевод координат.
 
 // Обмотка статора: шесть фазных зон по три паза в порядке A+ C− B+ A− C+ B−.
 // Ожидаемое записано отдельным списком на все 18 пазов, а не выведено той же
@@ -466,174 +462,111 @@ function testStatorWinding() {
   console.log("PASS: " + STATOR_SLOT_COUNT + " stator slots form the belts A+ C− B+ A− C+ B−");
 }
 
-// Раскладка кусков по строкам. Ею набираются легенда и примечание об обмотке,
-// где состав зависит от режима, а ширина — от экрана.
-function testLineFlow() {
-  let fitting = flowIntoLines([10.0, 10.0, 10.0], 5.0, 100.0);
-  diagnosticTrue("Pieces that fit stay on one line", fitting.length === 1);
-
-  // 40 + 10 + 40 = 90 укладывается, третий кусок уже нет.
-  let wrapped = flowIntoLines([40.0, 40.0, 40.0], 10.0, 100.0);
-  diagnosticTrue("Pieces that do not fit wrap to the next line",
-    wrapped.length === 2 && wrapped[0].length === 2 && wrapped[1].length === 1);
-
-  // Кусок шире всей строки всё равно попадает в неё: обрезать его нечем, а
-  // потерять — тем более.
-  let oversized = flowIntoLines([200.0, 10.0], 5.0, 100.0);
-  diagnosticTrue("A piece wider than the line still gets a line of its own",
-    oversized.length === 2 && oversized[0].length === 1);
-
-  // Главное свойство: ни один кусок не потерян, не задвоен и не переставлен.
-  let widths = [30.0, 90.0, 20.0, 60.0, 15.0, 45.0, 80.0];
-  let order = [];
-  for (const line of flowIntoLines(widths, 8.0, 100.0)) {
-    for (const index of line) order.push(index);
-  }
-  let straight = order.length === widths.length
-    && order.every((index, position) => index === position);
-  diagnosticTrue("Flowing keeps every piece exactly once and in order", straight);
-}
-
-// Выбор компоновки и деление полотна.
-function testSketchLayout() {
-  let layout = new SketchLayout();
-  // Признак принудительной компоновки выставляется явно: проверяется правило
-  // выбора по размеру окна, а не разбор адреса. Иначе открытие страницы как
-  // ?self-test&layout=compact роняло бы этот тест.
-  layout.forcedMode = "";
-
-  layout.update(1280.0, 720.0);
-  diagnosticTrue("A wide window uses the desktop layout", !layout.compact);
-  diagnosticNear("The desktop layout halves the canvas", layout.motorArea.w, 640.0, 0.0001);
-  diagnosticNear("The panel starts where the motor ends",
-    layout.panelArea.x, layout.motorArea.x + layout.motorArea.w, 0.0001);
-  diagnosticNear("The desktop layout covers the canvas to the right edge",
-    layout.panelArea.x + layout.panelArea.w, 1280.0, 0.0001);
-
-  layout.update(390.0, 844.0);
-  diagnosticTrue("A portrait window uses the compact layout", layout.compact);
-  diagnosticTrue("The compact layout gives the whole canvas to both",
-    layout.motorArea.w === 390.0 && layout.motorArea.h === 844.0
-    && layout.panelArea.w === 390.0 && layout.panelArea.h === 844.0);
-
+// Выбор компоновки. Решение принимается в одном месте и записывается атрибутом
+// data-layout, по которому раскладывает страницу таблица стилей. Правило
+// проверяется здесь: два источника — правило в программе и такое же правило в
+// CSS — разошлись бы на первой же правке.
+function testLayoutMode() {
+  diagnosticTrue("A wide window uses the desktop layout",
+    resolveLayoutMode(1280.0, 800.0) === LAYOUT_DESKTOP);
+  diagnosticTrue("A portrait window uses the compact layout",
+    resolveLayoutMode(390.0, 844.0) === LAYOUT_COMPACT);
   // Окно шире своей высоты, но у́же 820 px: машина с панелью рядом не встанут.
-  layout.update(800.0, 600.0);
-  diagnosticTrue("A window narrower than 820 px stays compact", layout.compact);
-  layout.update(1000.0, 600.0);
-  diagnosticTrue("A wide short window goes back to the desktop layout", !layout.compact);
+  diagnosticTrue("A window narrower than 820 px stays compact",
+    resolveLayoutMode(800.0, 600.0) === LAYOUT_COMPACT);
+  diagnosticTrue("A wide short window goes back to the desktop layout",
+    resolveLayoutMode(1000.0, 600.0) === LAYOUT_DESKTOP);
 }
 
-// Нижняя карточка: вид её рисует, панель раскладывает в неё свои кнопки, и
-// размеры обе стороны берут из одних и тех же функций. Если они разойдутся,
-// кнопки уедут с карточки — поэтому проверяется именно их согласованность.
-function testDockGeometry() {
-  let area = new Area();
-  area.set(0.0, 0.0, 390.0, 844.0);
-  let scale = 1.0;
-  let dock = motorViewDockBounds(area, scale, true);
+// Описания органов управления. Каждое называет поле ControlSettings, которым
+// орган управляет, и опечатка в имени ничем себя не выдаст: панель будет писать
+// в несуществующее поле, а регуляторы — читать нетронутое старое. Поэтому имена
+// сверяются с настройками целиком.
+function testPanelControlDescriptions() {
+  let testParameters = new MotorParameters();
+  let testSettings = new ControlSettings(testParameters);
+  let sliders = panelSliderDescriptions(testParameters);
+  let descriptions = sliders
+    .concat(PANEL_CHECKBOX_DESCRIPTIONS, VISUALISATION_CHECKBOX_DESCRIPTIONS);
+  let failures = 0;
+  let claimed = [];
 
-  diagnosticNear("The dock is its readout plus its toolbar",
-    dock.readoutHeight + dock.toolbarHeight, dock.h, 0.0001);
-  diagnosticNear("The toolbar starts where the readout ends",
-    dock.toolbarY, dock.y + dock.readoutHeight, 0.0001);
-  diagnosticNear("The dock keeps its margin from the bottom edge",
-    area.y + area.h - (dock.y + dock.h), MOTOR_READOUT_BOTTOM_MARGIN * scale, 0.0001);
-  diagnosticTrue("The dock stays inside the area",
-    dock.x >= area.x && dock.x + dock.w <= area.x + area.w && dock.y >= area.y);
-
-  // В широкой компоновке полосы действий нет вовсе: её кнопки стоят внизу панели.
-  let desktopDock = motorViewDockBounds(area, scale, false);
-  diagnosticNear("The desktop dock has no toolbar", desktopDock.toolbarHeight, 0.0, 0.0001);
-
-  // Подвал — это всё занятое внизу: легенда, зазор, карточка и отступ от края.
-  // По нему вид считает, сколько места осталось машине.
-  diagnosticTrue("The footer leaves room for the whole dock",
-    motorViewFooterHeight(scale, true) >= dock.h + MOTOR_READOUT_BOTTOM_MARGIN * scale);
-  diagnosticTrue("The compact footer is the taller of the two",
-    motorViewFooterHeight(scale, true) > motorViewFooterHeight(scale, false));
-}
-
-// Ползунок: попадание, перевод координаты в значение и захват.
-function testSliderMapping() {
-  let slider = new SliderControl("тест", "", -10.0, 10.0, 0.0);
-  slider.setBounds(100.0, 200.0, 200.0, 40.0, 1.0);
-
-  diagnosticTrue("A press below the slider is ignored",
-    !slider.press(200.0, 300.0) && !slider.dragging);
-  diagnosticTrue("A press inside the slider captures it",
-    slider.press(200.0, 210.0) && slider.dragging);
-  diagnosticNear("The press puts the value under the pointer", slider.value, 0.0, 0.0001);
-
-  diagnosticTrue("Dragging keeps the capture", slider.drag(300.0));
-  diagnosticNear("Dragging to the right edge gives the maximum", slider.value, 10.0, 0.0001);
-  // Палец легко уходит далеко за край — значение при этом упирается в предел, а
-  // захват не теряется.
-  slider.drag(-500.0);
-  diagnosticNear("Dragging past the left edge clamps to the minimum", slider.value, -10.0, 0.0001);
-
-  slider.release();
-  diagnosticTrue("Releasing drops the capture", !slider.dragging && !slider.drag(150.0));
-
-  // Спрятанный ползунок не ловит нажатий: его убрала из раскладки смена режима,
-  // и на его месте нарисовано уже другое.
-  slider.visible = false;
-  diagnosticTrue("A hidden slider ignores presses", !slider.press(200.0, 210.0));
-
-  // Знак у задания скорости печатается всегда, кроме нуля: «−0» выглядит как
-  // ошибка.
-  let signed = new SliderControl("знак", "", -1000.0, 1000.0, 0.0);
-  signed.showPositiveSign = true;
-  diagnosticTrue("A signed slider prints the plus", signed.formatValue(120.0) === "+120");
-  diagnosticTrue("A signed slider prints the minus", signed.formatValue(-120.0) === "−120");
-  diagnosticTrue("A signed slider prints zero without a sign", signed.formatValue(0.0) === "0");
-}
-
-// Строка кнопок: каждая отвечает своим индексом, промежуток между ними — ничей.
-function testButtonRowHitTest() {
-  let row = new ButtonRowControl(["один", "два", "три"]);
-  row.setBounds(0.0, 0.0, 100.0, 30.0, 5.0, 1.0);
-
-  diagnosticNear("The button row fills its width",
-    row.buttonX(2) + row.buttonWidth(), 100.0, 0.0001);
-  let centresAnswer = true;
-  for (let i = 0; i < 3; i++) {
-    if (row.press(row.buttonX(i) + row.buttonWidth() * 0.5, 15.0) !== i) centresAnswer = false;
-  }
-  diagnosticTrue("Every button answers at its own centre", centresAnswer);
-  diagnosticTrue("The gap between buttons belongs to no button",
-    row.press(row.buttonX(1) - 2.5, 15.0) === -1);
-  diagnosticTrue("A press above the row is ignored", row.press(50.0, -1.0) === -1);
-
-  row.visible = false;
-  diagnosticTrue("A hidden button row ignores presses", row.press(50.0, 15.0) === -1);
-}
-
-// Полоса действий: сегменты без промежутков, поэтому попадание считается
-// делением, а не перебором, и крайний пиксель справа должен остаться за
-// последним сегментом.
-function testToolbarHitTest() {
-  let toolbar = new ToolbarControl([
-    { icon: ICON_SUN, label: "Тема" },
-    { icon: ICON_PAUSE, label: "Пауза" },
-    { icon: ICON_RESET, label: "Сброс" },
-    { icon: ICON_SETTINGS, label: "Настройки" },
-  ]);
-  toolbar.setBounds(0.0, 100.0, 400.0, 50.0, 1.0);
-  toolbar.visible = true;
-
-  let segmentsAnswer = true;
-  for (let i = 0; i < 4; i++) {
-    if (toolbar.press(toolbar.segmentX(i) + toolbar.segmentWidth() * 0.5, 125.0) !== i) {
-      segmentsAnswer = false;
+  for (const description of descriptions) {
+    if (!(description.setting in testSettings)) {
+      failures++;
+      console.log("FAIL: control " + description.setting + " names no such setting");
+    }
+    if (claimed.includes(description.setting)) {
+      failures++;
+      console.log("FAIL: setting " + description.setting + " is claimed by two controls");
+    }
+    claimed.push(description.setting);
+    if (!description.label) {
+      failures++;
+      console.log("FAIL: control " + description.setting + " has no label");
     }
   }
-  diagnosticTrue("Every toolbar segment answers at its own centre", segmentsAnswer);
-  diagnosticTrue("The right edge belongs to the last segment",
-    toolbar.press(400.0, 125.0) === TOOLBAR_SETTINGS);
-  diagnosticTrue("A press below the toolbar is ignored", toolbar.press(200.0, 200.0) === -1);
 
-  toolbar.visible = false;
-  diagnosticTrue("A hidden toolbar ignores presses", toolbar.press(200.0, 125.0) === -1);
+  // Диапазон ползунка обязан вмещать значение по умолчанию. Иначе первый же
+  // проход «настройки → разметка» подтянул бы значение к краю диапазона, и
+  // настройка изменилась бы сама, без единого действия человека.
+  for (const slider of sliders) {
+    let value = testSettings[slider.setting];
+    if (value < slider.minimum || value > slider.maximum) {
+      failures++;
+      console.log("FAIL: the default of " + slider.setting + " (" + value
+        + ") is outside its slider range " + slider.minimum + "…" + slider.maximum);
+    }
+    if (!(slider.step > 0.0)) {
+      failures++;
+      console.log("FAIL: slider " + slider.setting + " has no usable step");
+    }
+  }
+
+  if (failures > 0) {
+    diagnosticFailures += failures;
+    return;
+  }
+  console.log("PASS: " + descriptions.length + " panel controls match the settings");
+}
+
+// Какие органы управления нужны текущему режиму. Раньше это решала сама
+// раскладка тем, что просто не ставила их на место; теперь правило отделено от
+// разметки и проверяется само по себе.
+function testControlVisibilityRules() {
+  let testParameters = new MotorParameters();
+  let testSettings = new ControlSettings(testParameters);
+  let byName = {};
+  for (const slider of panelSliderDescriptions(testParameters)) {
+    byName[slider.setting] = slider;
+  }
+
+  testSettings.mode = MODE_MANUAL;
+  diagnosticTrue("The load slider is there in every mode",
+    controlApplies(byName.loadTorque, testSettings));
+  diagnosticTrue("Open-loop controls stay out of the manual mode",
+    !controlApplies(byName.openLoopVoltage, testSettings));
+
+  testSettings.mode = MODE_OPEN_LOOP;
+  diagnosticTrue("The open-loop mode brings its own controls",
+    controlApplies(byName.openLoopFrequency, testSettings));
+  diagnosticTrue("Current gains stay out of the open-loop mode",
+    !controlApplies(byName.currentKp, testSettings));
+
+  testSettings.mode = MODE_VECTOR;
+  testSettings.speedLoopEnabled = false;
+  diagnosticTrue("The iq reference is there while the speed loop is off",
+    controlApplies(byName.currentQReference, testSettings));
+  diagnosticTrue("Speed-loop gains stay hidden while it is off",
+    !controlApplies(byName.speedKp, testSettings));
+
+  // Контур скорости сам задаёт iq, и ползунок задания тока в этот момент лишний.
+  testSettings.speedLoopEnabled = true;
+  diagnosticTrue("Turning the speed loop on replaces the iq reference",
+    !controlApplies(byName.currentQReference, testSettings)
+    && controlApplies(byName.speedReferenceRpm, testSettings));
+  diagnosticTrue("Current gains stay in both cases",
+    controlApplies(byName.currentKp, testSettings));
 }
 
 // Перевод точки полотна в ручное задание: длина — в величину, угол — в фазу.
@@ -643,11 +576,10 @@ function testManualVectorMapping() {
   let testParameters = new MotorParameters();
   let testSettings = new ControlSettings(testParameters);
   let testView = new MotorView(testParameters, testSettings);
-  let area = new Area();
-  area.set(0.0, 0.0, 640.0, 720.0);
-  // Широкая компоновка: её геометрия считается из одного размера области и не
-  // требует измерять текст.
-  testView.updateGeometry(area, false);
+  // Полотно целиком отдано машине, и прямоугольник ему передаётся обычным
+  // объектом — делить его больше не с кем.
+  let area = { x: 0.0, y: 0.0, w: 640.0, h: 720.0 };
+  testView.updateGeometry(area);
   testSettings.mode = MODE_MANUAL;
   testSettings.manualVectorType = MANUAL_VECTOR_CURRENT;
 

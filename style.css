@@ -1,4 +1,9 @@
-/* Ни одного цвета в этом файле: значения переменных выставляет Theme.js из
+/* Таблица стилей страницы. Интерфейса здесь нет: и машина, и панель рисуются
+   на полотне средствами p5.js, поэтому CSS отвечает только за три вещи —
+   страница занимает окно целиком и не прокручивается, полотно получает все
+   касания, и страница самотестирования (у неё полотна нет) читается.
+
+   Ни одного цвета в этом файле: значения переменных выставляет Theme.js из
    активной палитры, а запасные — на случай, если скрипт ещё не выполнился, —
    совпадают с тёмной темой. */
 :root {
@@ -15,9 +20,10 @@ html,
 body,
 #app {
   width: 100%;
-  /* 100dvh tracks the browser chrome on phones; 100vh stays as the fallback
-     for engines without dynamic viewport units. The page never scrolls, so the
-     dynamic unit settles immediately instead of oscillating with the URL bar. */
+  /* 100dvh следит за интерфейсом браузера на телефонах; 100vh остаётся
+     запасным вариантом для движков без динамических единиц. Страница не
+     прокручивается, поэтому динамическая единица сразу устанавливается, а не
+     колеблется вместе с адресной строкой. */
   height: 100vh;
   height: 100dvh;
   margin: 0;
@@ -25,23 +31,27 @@ body,
 }
 
 body {
-  /* Drags inside the canvas belong to the widgets. Without this a slider drag
-     that overshoots the canvas pulls the page into a rubber-band scroll. */
+  /* Протягивания внутри полотна принадлежат виджетам. Без этого движение
+     ползунка, ушедшее за край полотна, утягивало бы страницу в упругую
+     прокрутку. */
   overscroll-behavior: none;
   -webkit-text-size-adjust: 100%;
 }
 
 canvas {
   display: block;
-  /* The single most important mobile fix: the browser otherwise claims every
-     touch drag for scrolling and pinch-zooming before p5 ever sees it. */
+  /* Самая важная строка для телефонов: иначе браузер забирает каждое движение
+     пальца себе — на прокрутку и масштабирование щипком — и до p5 оно просто
+     не доходит. */
   touch-action: none;
   -webkit-tap-highlight-color: transparent;
   -webkit-user-select: none;
   user-select: none;
 }
 
-/* The self-test page has no canvas and may be taller than the viewport. */
+/* У страницы самотестирования полотна нет, а текста может оказаться больше,
+   чем высота окна: ей прокрутка как раз нужна. Класс на body ставит
+   showDiagnosticResult в PMSMmodel.js. */
 body.diagnostics-page,
 body.diagnostics-page #app {
   height: auto;
@@ -50,6 +60,8 @@ body.diagnostics-page #app {
   overflow: auto;
 }
 
+/* Карточка с итогом самотестирования: единственный видимый элемент разметки во
+   всей программе. Цвета — те же, что у полотна, через переменные Theme.js. */
 .diagnostics {
   box-sizing: border-box;
   width: min(680px, calc(100% - 40px));

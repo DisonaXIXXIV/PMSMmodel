@@ -8,6 +8,9 @@
 // Профиль выбирается страницей: подпапка demo-страницы объявляет
 // window.PMSM_PROFILE до загрузки скриптов. Корневая страница его не задаёт и
 // потому принимает ?mode=<имя> — этим любой профиль проверяется без подпапки.
+
+// Имена профилей совпадают с именами подпапок demo-страниц и со значением
+// параметра ?mode: одно имя на профиль, страницу и ссылку.
 const PROFILE_FULL = "full";
 const PROFILE_MANUAL_VOLTAGE = "manual-voltage";
 const PROFILE_MANUAL_CURRENT = "manual-current";
@@ -72,6 +75,10 @@ function demoProfile(name) {
   return profile === undefined ? DEMO_PROFILES[PROFILE_FULL] : profile;
 }
 
+// Какой профиль запрошен. Порядок важен: объявление страницы сильнее адреса.
+// Страница режима задаёт window.PMSM_PROFILE, и ?mode её переопределить не
+// может — иначе из режима можно было бы выйти правкой ссылки, а вся затея
+// именно в том, что нельзя.
 function requestedDemoProfileName() {
   if (typeof window === "undefined") return PROFILE_FULL;
   if (typeof window.PMSM_PROFILE === "string") return window.PMSM_PROFILE;
@@ -82,6 +89,7 @@ function requestedDemoProfileName() {
   return PROFILE_FULL;
 }
 
+// Единственное, что нужно точке входа: узнать профиль этой страницы.
 function resolveDemoProfile() {
   return demoProfile(requestedDemoProfileName());
 }

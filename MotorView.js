@@ -1,8 +1,28 @@
-// The machine view reserves a band at the top for its captions and a band at
-// the bottom for the legend and the live values. In the compact layout that
-// bottom card is also the home of the toolbar, so the whole dock is measured
-// here once: the view draws the card, the control panel lays its buttons into
-// the strip, and neither has to guess where the other put things.
+// Вид машины: статор с обмоткой, ротор, системы координат, векторы, дуги
+// моментов, легенда и показания.
+//
+// Здесь не считается ничего физического — всё берётся из MotorState и рисуется.
+// Зато здесь живёт вся геометрия картинки, и у неё два соглашения, которые
+// стоит знать, прежде чем читать дальше:
+//
+//   * Углы — математические: отсчитываются от оси α (вправо) против часовой
+//     стрелки. Ось y полотна направлена вниз, поэтому во всех переводах угла в
+//     точку синус вычитается, а не прибавляется, — см. pointX/pointY.
+//   * Физический угол и угол на экране — не одно и то же. Когда включена
+//     фиксация осей d–q, картинка целиком повёрнута на viewRotation, и любой
+//     физический угол перед рисованием проходит через screenAngle().
+//
+// Ещё одна особенность: вид измеряет и рисует нижнюю карточку (показания, а в
+// компактной компоновке ещё и полосу действий), но кнопки в эту полосу
+// раскладывает панель. Поэтому размеры карточки считаются свободными функциями
+// в начале файла — их вызывают и вид, и панель, и оба получают один ответ.
+
+// Сверху вид оставляет полосу под надписи, снизу — под легенду и показания. В
+// компактной компоновке в той же нижней карточке живёт и полоса действий,
+// поэтому вся карточка измеряется здесь один раз: вид её рисует, панель
+// раскладывает в её нижнюю часть свои кнопки, и никому не приходится угадывать,
+// где оказалось чужое.
+
 // Шапка компактной компоновки: заголовок, система координат и примечание об
 // обмотке. Её высота не задана числом, а складывается из этих отступов и того,
 // на сколько строк разошлось примечание, — машина начинается сразу под текстом,
@@ -21,10 +41,15 @@ const MOTOR_DOCK_SIDE_MARGIN = 17.0;
 // высоты, то есть остаются выше порога комфортного касания.
 const MOTOR_TOOLBAR_HEIGHT = 52.0;
 
+// Сколько строк отведено легенде. На узком экране пять её элементов в одну
+// строку не встают (см. drawLegend).
 function motorViewLegendRows(compact) {
   return compact ? 2 : 1;
 }
 
+// Высоты частей нижней карточки. Компактная выше: показания там идут сеткой
+// два на три, а не двумя строками. Полосы действий в широкой компоновке нет
+// вовсе — её кнопки стоят внизу панели.
 function motorViewReadoutHeight(scale, compact) {
   return (compact ? 89.0 : 63.0) * scale;
 }
@@ -51,6 +76,8 @@ function motorViewDockBounds(area, scale, compact) {
   };
 }
 
+// Полная высота всего, что занято внизу: легенда, зазор, карточка и отступ от
+// края. Ею updateGeometry считает, сколько места осталось самой машине.
 function motorViewFooterHeight(scale, compact) {
   return motorViewLegendRows(compact) * MOTOR_LEGEND_ROW_HEIGHT * scale
     + MOTOR_READOUT_LEGEND_GAP * scale
@@ -59,6 +86,9 @@ function motorViewFooterHeight(scale, compact) {
     + MOTOR_READOUT_BOTTOM_MARGIN * scale;
 }
 
+// Вид машины. Состояние здесь только то, что нельзя вывести из модели:
+// геометрия текущего кадра, поворот системы наблюдения и признак того, что
+// сейчас тянут ручной вектор.
 class MotorView {
   parameters;
   settings;
@@ -69,6 +99,11 @@ class MotorView {
   statorInnerRadius;
   rotorRadius;
 
+  // Система наблюдения. viewRotation — на сколько повёрнута вся картинка;
+  // mechanicalAngleAtLock — положение ротора в момент фиксации осей;
+  // previousLockState нужен, чтобы заметить сам момент включения и выключения
+  // флажка, а returningToStationaryFrame — чтобы картинка возвращалась в
+  // неподвижное положение плавно, а не рывком.
   previousLockState = false;
   returningToStationaryFrame = false;
   manualDragging = false;
@@ -80,6 +115,13 @@ class MotorView {
     this.settings = settings;
   }
 
+  // Поворот системы наблюдения, раз в кадр.
+  //
+  // «Зафиксировать оси d–q» не останавливает ротор физически — модель работает
+  // как раньше. Поворачивается взгляд: картинка доворачивается на тот же угол,
+  // что прошёл ротор с момента фиксации, и ротор оказывается неподвижен, а
+  // статор и оси α–β начинают вращаться вокруг него. Так видно, что векторное
+  // управление — это и есть переход в такую систему координат.
   updateReferenceFrame(state) {
     if (this.settings.lockDqFrame && !this.previousLockState) {
       this.mechanicalAngleAtLock = state.mechanicalAngle;
@@ -92,6 +134,10 @@ class MotorView {
       this.returningToStationaryFrame = true;
     }
 
+    // Возврат к неподвижной системе: 16 % остатка за кадр — экспоненциальное
+    // сближение, которое выглядит плавным и заведомо заканчивается. Идти нужно
+    // кратчайшим путём, отсюда signedAngle: с 350° правильно доворачивать на
+    // +10°, а не отматывать назад почти полный оборот.
     if (this.returningToStationaryFrame) {
       this.viewRotation += signedAngle(-this.viewRotation) * 0.16;
       if (abs(signedAngle(this.viewRotation)) < 0.002) {
@@ -104,6 +150,8 @@ class MotorView {
     this.previousLockState = this.settings.lockDqFrame;
   }
 
+  // Сброс вида по кнопке «Сброс»: картинка возвращается в неподвижное
+  // положение мгновенно, вместе с машиной.
   resetReferenceFrame() {
     this.previousLockState = false;
     this.returningToStationaryFrame = false;
@@ -112,14 +160,20 @@ class MotorView {
     this.mechanicalAngleAtLock = 0.0;
   }
 
-  // The compact layout hands the view the whole screen, so the machine is sized
-  // against the free band between the captions and the readout rather than
-  // against a half-width column.
+  // Общий масштаб картинки: от него зависят и кегли надписей, и отступы, и
+  // толщины линий, так что вся картинка растёт и уменьшается целиком. В
+  // компактной компоновке виду отдан весь экран, поэтому машина вписывается в
+  // свободную полосу между шапкой и показаниями, а не в колонку половинной
+  // ширины. Границы constrain не дают ей ни выродиться на узком экране, ни
+  // растянуться до нелепого размера на большом.
   viewScale(area, compact) {
     if (compact) return constrain(area.w / 360.0, 0.92, 1.30);
     return constrain(min(area.w / 640.0, area.h / 720.0), 0.68, 1.35);
   }
 
+  // Где на полотне стоит машина и какого она размера. Считается заново каждый
+  // кадр: окно можно менять на ходу, а в компактной компоновке высота шапки
+  // зависит от того, на сколько строк разошлось примечание об обмотке.
   updateGeometry(area, compact) {
     this.centerX = area.x + area.w * 0.5;
     if (compact) {
@@ -132,10 +186,16 @@ class MotorView {
       this.centerY = area.y + area.h * 0.46;
       this.outerRadius = min(area.w * 0.365, area.h * 0.315);
     }
+    // Три радиуса задают всю машину, и остальные размеры (пазы, кружки сторон
+    // катушек, длины векторов, кегли подписей на картинке) считаются от них.
+    // Поэтому машина остаётся соразмерной при любом размере окна.
     this.statorInnerRadius = this.outerRadius * 0.72;
     this.rotorRadius = this.outerRadius * 0.49;
   }
 
+  // Кадр вида. Порядок вызовов — это порядок слоёв снизу вверх: фон, надписи,
+  // статор, ротор, оси, проекции, векторы, дуги моментов и, наконец, легенда с
+  // показаниями поверх всего.
   draw(area, motor, controller,
             simulator, compact) {
     this.updateGeometry(area, compact);
@@ -158,6 +218,8 @@ class MotorView {
     this.drawReadout(area, state, simulator, scale, compact);
   }
 
+  // Примечание об обмотке: потокосцепление магнитов и как читать обозначения
+  // сторон катушек.
   windingNote() {
     return "ψf = " + nf(this.parameters.magnetFlux, 1, 2)
       + " Вб; 18 пазов, q = 3;  • — из плоскости, × — в плоскость";
@@ -174,12 +236,18 @@ class MotorView {
     return lines.map((line) => line.map((index) => words[index]).join(" "));
   }
 
+  // Высота шапки в компактной компоновке: отступы плюс столько строк
+  // примечания, сколько его получилось. Машина начинается сразу под текстом, а
+  // не под запасом, рассчитанным на самый узкий экран.
   compactHeaderHeight(area, scale) {
     let lines = this.compactNoteLines(area, scale).length;
     return (MOTOR_COMPACT_NOTE_TOP + MOTOR_COMPACT_HEADER_PADDING) * scale
       + lines * MOTOR_COMPACT_NOTE_LEADING * scale;
   }
 
+  // Надписи над машиной: название, текущая система наблюдения и примечание об
+  // обмотке. Подпись про систему наблюдения меняется вместе с флажком фиксации
+  // осей — без неё вращающийся статор выглядел бы просто как ошибка.
   drawCaptions(area, scale, compact) {
     let x = area.x + (compact ? MOTOR_COMPACT_SIDE_MARGIN : 17.0) * scale;
     let frameName = this.settings.lockDqFrame ? "система наблюдения d–q зафиксирована"
@@ -188,8 +256,8 @@ class MotorView {
     fillTheme(theme().motorTitle);
     textAlign(LEFT, TOP);
     if (compact) {
-      // The title is the widest fixed string on the screen; on a phone it has
-      // to give way rather than run off the edge.
+      // Заголовок — самая длинная несокращаемая строка на экране; на телефоне
+      // ему приходится уменьшаться, а не уезжать за край.
       fittedTextSize("Синхронная машина с постоянными магнитами",
         area.w - 2.0 * MOTOR_COMPACT_SIDE_MARGIN * scale, 19.0 * scale, 11.0 * scale);
     } else {
@@ -216,10 +284,16 @@ class MotorView {
     }
   }
 
+  // Перевод физического угла в экранный. Единственное место, где учитывается
+  // поворот системы наблюдения, — поэтому всё остальное рисование может
+  // спокойно работать с физическими углами.
   screenAngle(physicalAngle) {
     return physicalAngle - this.viewRotation;
   }
 
+  // Статор: ярмо, расточка, 18 пазов и стороны катушек трёх фаз. Обмотка
+  // показана распределённой, а не сосредоточенной, — так видно, что ток фазы
+  // занимает целую зону, а не один паз.
   drawStator(state) {
     noStroke();
     fillTheme(theme().statorYoke);
@@ -227,12 +301,19 @@ class MotorView {
     fillTheme(theme().statorBore);
     circle(this.centerX, this.centerY, this.statorInnerRadius * 2.0);
 
+    // При зафиксированных осях d–q статор вращается на экране, и на большой
+    // скорости 18 пазов с подписями превращаются в мелькание. Поэтому с ростом
+    // скорости он бледнеет: остаётся видно, что он вращается, но рябь глаз не
+    // утомляет. В обычном режиме статор неподвижен и бледнеть ему незачем.
     let speedFade = this.settings.lockDqFrame
       ? constrain(map(abs(rpmFromRadians(state.mechanicalSpeed)), 500.0, 3500.0, 1.0, 0.20), 0.20, 1.0)
       : 1.0;
     let slotCount = 18;
-    // Six 60-electrical-degree phase belts for a two-pole, three-phase winding:
-    // A+, C-, B+, A-, C+, B-. Each belt occupies q = 3 adjacent slots.
+    // Шесть фазных зон по 60 электрических градусов — двухполюсная трёхфазная
+    // обмотка: A+, C−, B+, A−, C+, B−. Каждая зона занимает q = 3 соседних
+    // паза, отсюда и 18 пазов. Массив задаёт фазу каждой зоны, а знак
+    // (направление стороны катушки) чередуется через зону, потому что вторая
+    // половина обмотки — это обратные стороны тех же витков.
     let beltPhases = [ 0, 2, 1, 0, 2, 1 ];
     let statorAngle = this.screenAngle(0.0);
     for (let slot = 0; slot < slotCount; slot++) {
@@ -268,6 +349,8 @@ class MotorView {
     circle(this.centerX, this.centerY, this.statorInnerRadius * 2.0);
   }
 
+  // Сторона катушки в пазу: кружок, а в нём точка (ток из плоскости чертежа)
+  // или крест (ток в плоскость). Цвет — цвет фазы.
   drawCoilSide(angle, phaseColor, conductorDirection, fade) {
     let markerX = this.pointX(angle, this.outerRadius * 0.82);
     let markerY = this.pointY(angle, this.outerRadius * 0.82);
@@ -293,12 +376,21 @@ class MotorView {
     }
   }
 
+  // Ротор: два полюса постоянного магнита, N по оси d и S против неё, плюс вал
+  // в центре. Ось d — это и есть направление потока магнитов, поэтому полюс N
+  // всегда показывает туда, куда показывает ось d.
   drawRotor(state) {
     let rotorScreenAngle = this.screenAngle(state.mechanicalAngle);
     let rpm = abs(rpmFromRadians(state.mechanicalSpeed));
+    // Обратная к статору мера: в обычном режиме на большой скорости бледнеет
+    // уже ротор, а при зафиксированных осях он неподвижен и остаётся плотным.
     let movingFade = this.settings.lockDqFrame ? 1.0
       : constrain(map(rpm, 700.0, 3500.0, 1.0, 0.38), 0.38, 1.0);
 
+    // Полюсы рисуются половинками круга, поэтому их проще повернуть
+    // преобразованием системы координат, чем считать точки. Знак угла обратный:
+    // у полотна ось y направлена вниз, и положительный поворот там по часовой
+    // стрелке.
     push();
     translate(this.centerX, this.centerY);
     rotate(-rotorScreenAngle);
@@ -332,6 +424,10 @@ class MotorView {
 
   }
 
+  // Две системы координат: неподвижная α–β и вращающаяся вместе с ротором d–q.
+  // Оси d–q рисуются и тогда, когда флажок их показа снят, но включена
+  // фиксация: без них было бы непонятно, относительно чего остановлена
+  // картинка.
   drawAxes(state) {
     let axisRadius = this.statorInnerRadius * 0.94;
     if (this.settings.showAlphaBetaAxes) {
@@ -346,6 +442,8 @@ class MotorView {
     }
   }
 
+  // Одна ось: линия через центр в обе стороны и подпись на положительном
+  // конце, чуть за линией.
   drawAxis(angle, radius, axisColor, positiveLabel,
                 negativeLabel) {
     stroke(axisColor);
@@ -360,11 +458,17 @@ class MotorView {
       this.pointY(angle, radius + this.outerRadius * 0.055));
   }
 
+  // Проекции вектора тока на выбранные оси со штриховыми линиями достроения.
+  // Это главная учебная картинка файла: id и iq — не абстракция, а проекции
+  // того же вектора тока на оси, вращающиеся вместе с ротором. Видно и то, что
+  // момент даёт только iq.
   drawCurrentProjections(state) {
     let currentMagnitude = sqrt(state.currentAlpha * state.currentAlpha
       + state.currentBeta * state.currentBeta);
-    // Use the same uniform scale as the displayed current vector. When the
-    // vector reaches the visual limit, all of its components shrink together.
+    // Масштаб берётся тот же, что и у нарисованного вектора тока: когда вектор
+    // упирается в визуальный предел, его проекции сжимаются вместе с ним.
+    // Иначе проекции перестали бы складываться в сам вектор — а это ровно то,
+    // что картинка и должна показывать.
     let scale = this.limitedVectorScale(currentMagnitude, this.parameters.maximumCurrent,
       this.currentVectorMaximumLength());
     if (this.settings.showAlphaBetaProjections) {
@@ -385,6 +489,9 @@ class MotorView {
     }
   }
 
+  // Векторы в неподвижной системе: заданный ручной вектор (бледный), ток,
+  // напряжение и ЭДС. Задание рисуется только в ручном режиме — в остальных
+  // его задают числом, а не мышью.
   drawElectricalVectors(state) {
     if (this.settings.mode == MODE_MANUAL) {
       if (this.settings.manualVectorType == MANUAL_VECTOR_CURRENT) {
@@ -400,6 +507,10 @@ class MotorView {
     this.drawPhysicalVector(state.currentAlpha, state.currentBeta, this.parameters.maximumCurrent,
       this.currentVectorMaximumLength(), themeColor(theme().vectorCurrent), "i");
     if (this.settings.showVoltage) {
+      // Масштаб напряжения совпадает с масштабом задания: в ручном режиме
+      // напряжения предел 15 В, иначе — полное напряжение инвертора. Иначе
+      // заданный вектор и полученный рисовались бы в разных масштабах, и
+      // сравнивать их было бы нельзя.
       let voltageScaleMaximum = this.settings.mode == MODE_MANUAL
           && this.settings.manualVectorType == MANUAL_VECTOR_VOLTAGE
         ? MANUAL_MAXIMUM_VOLTAGE
@@ -413,6 +524,9 @@ class MotorView {
     }
   }
 
+  // Вектор, заданный проекциями на α и β. Совсем короткие не рисуются: у
+  // вектора нулевой длины нет направления, и наконечник со подписью
+  // превратились бы в кляксу в центре.
   drawPhysicalVector(alpha, beta, maximum, maximumLength,
                           vectorColor, label) {
     let magnitude = sqrt(alpha * alpha + beta * beta);
@@ -422,6 +536,12 @@ class MotorView {
     this.drawArrow(this.screenAngle(physicalAngle), length, vectorColor, label, 2.3);
   }
 
+  // Масштаб «пикселей на единицу». Обычно он постоянный — тогда длина вектора
+  // прямо пропорциональна величине и векторы разных кадров сравнимы между
+  // собой. Но при перерегулировании величина способна превысить номинальный
+  // предел, и вектор ушёл бы за пределы статора; в этом случае масштаб
+  // сжимается так, чтобы вектор остановился на 15 % дальше предельной длины —
+  // видно, что предел превышен, но картинка не разваливается.
   limitedVectorScale(magnitude, nominalMaximum, maximumLength) {
     let normalScale = maximumLength / nominalMaximum;
     if (magnitude < 0.001) return normalScale;
@@ -429,6 +549,9 @@ class MotorView {
     return min(normalScale, saturatedScale);
   }
 
+  // Проекция как стрелка по оси. Отрицательная проекция — это стрелка в
+  // обратную сторону, а не стрелка отрицательной длины, поэтому знак
+  // переносится в угол.
   drawSignedComponent(angle, signedLength, componentColor, label) {
     let maximumProjectionLength = this.currentVectorMaximumLength() * 1.15;
     let clampedLength = constrain(signedLength,
@@ -441,6 +564,9 @@ class MotorView {
     this.drawArrow(angle, clampedLength, componentColor, label, 1.25);
   }
 
+  // Штриховые линии достроения от концов проекций к концу самого вектора: та
+  // самая «параллелограммная» достройка, из которой видно, что вектор равен
+  // сумме своих проекций.
   drawProjectionGuides(firstAxisAngle, firstLength,
                             secondLength, guideColor) {
     let maximumLength = this.currentVectorMaximumLength() * 1.15;
@@ -459,6 +585,8 @@ class MotorView {
     this.drawDashedLine(secondX, secondY, tipX, tipY, guideColor);
   }
 
+  // Штриховая линия: p5 своего пунктира для линий не даёт, поэтому она
+  // собирается из отрезков через один.
   drawDashedLine(x1, y1, x2, y2, lineColor) {
     let length = dist(x1, y1, x2, y2);
     if (length < 1.0) return;
@@ -473,6 +601,9 @@ class MotorView {
     }
   }
 
+  // Стрелка из центра: линия, две линии наконечника и подпись чуть за концом.
+  // weightFactor позволяет одному и тому же коду рисовать и жирные векторы, и
+  // тонкие проекции.
   drawArrow(angle, length, arrowColor, label, weightFactor) {
     let endX = this.pointX(angle, length);
     let endY = this.pointY(angle, length);
@@ -493,6 +624,10 @@ class MotorView {
     text(label, this.pointX(angle, length + 11.0), this.pointY(angle, length + 11.0));
   }
 
+  // Моменты показаны дугами вокруг статора: момент машины ближе, момент
+  // нагрузки дальше. У нагрузки знак обратный, потому что положительная
+  // нагрузка по принятому соглашению противодействует положительному
+  // вращению, — и на картинке её дуга смотрит навстречу дуге машины.
   drawTorqueArcs(state) {
     this.drawTorqueArc(state.electromagneticTorque, this.outerRadius * 1.08,
       themeColor(theme().torqueMotor));
@@ -500,6 +635,9 @@ class MotorView {
       themeColor(theme().torqueLoad));
   }
 
+  // Одна дуга: направление — знак момента, длина и толщина — его величина,
+  // отнесённая к предельному моменту. Почти нулевые моменты не рисуются: их
+  // дуга всё равно была бы короче наконечника.
   drawTorqueArc(torque, radius, arcColor) {
     if (abs(torque) < 0.015) return;
     let direction = torque >= 0.0 ? 1.0 : -1.0;
@@ -513,6 +651,9 @@ class MotorView {
     this.drawArcArrowHead(radius, start + sweep, direction, arcColor);
   }
 
+  // Дуга в математических углах. Своей arc() у p5 углы отсчитываются по
+  // часовой стрелке от оси x, поэтому дуга собирается из отрезков — так те же
+  // углы, что и у всего остального в этом файле.
   drawMathArc(cx, cy, radius, start, sweep, segments) {
     beginShape();
     for (let i = 0; i <= segments; i++) {
@@ -522,6 +663,8 @@ class MotorView {
     endShape();
   }
 
+  // Наконечник на конце дуги: направлен по касательной, поэтому дуга читается
+  // как вращающий момент, а не как просто отметка на окружности.
   drawArcArrowHead(radius, endAngle, direction, arrowColor) {
     let endX = this.pointX(endAngle, radius);
     let endY = this.pointY(endAngle, radius);
@@ -537,6 +680,9 @@ class MotorView {
       endY - head * sin(tangentAngle + PI + 0.5));
   }
 
+  // Легенда: что означает каждый цвет. Расставляется по измеренной ширине
+  // подписей, а не по заранее выбранным отступам, — иначе при другой ширине
+  // экрана элементы либо наезжали бы друг на друга, либо расходились.
   drawLegend(area, scale, compact) {
     let entries = [
       [themeColor(theme().vectorCurrent), "ток i"],
@@ -548,11 +694,12 @@ class MotorView {
     ];
     let rows = motorViewLegendRows(compact);
     let available = area.w - 2.0 * MOTOR_DOCK_SIDE_MARGIN * scale;
-    // Match the control panel's body text, PANEL_FONT_SCALE included: the motor
-    // side never got that 15 % boost, which left the legend reading small next
-    // to the panel. The items were laid out on hand-tuned offsets that only
-    // held at one width, so measure them and shrink until they fit the rows the
-    // footer has reserved.
+    // Кегль тот же, что у основного текста панели, вместе с PANEL_FONT_SCALE:
+    // сторона машины эту прибавку в 15 % когда-то не получила, и легенда
+    // читалась мельче панели. Раньше элементы стояли на подобранных вручную
+    // отступах, которые сходились только при одной ширине; теперь они
+    // измеряются и кегль уменьшается, пока они не улягутся в те строки,
+    // которые под них отвела нижняя полоса.
     let labelSize = 12.5 * scale * PANEL_FONT_SCALE;
     let lines = [];
     let widths = [];
@@ -582,9 +729,10 @@ class MotorView {
     }
   }
 
+  // Один элемент легенды: кружок цвета и подпись.
   drawLegendItem(x, y, itemColor, label, labelSize) {
-    // Deriving the marker and the gap from the label size keeps the row
-    // balanced at whatever size the fitting above settles on.
+    // Кружок и отступ считаются от кегля подписи: на каком бы размере не
+    // остановился подбор выше, строка остаётся соразмерной.
     let markerDiameter = labelSize * 0.62;
     let markerY = y + labelSize * 0.5;
     noStroke();
@@ -596,6 +744,9 @@ class MotorView {
     text(label, x + markerDiameter + labelSize * 0.35, markerY);
   }
 
+  // Показания машины в нижней карточке: скорость, моменты, токи в осях d–q и
+  // амплитуда напряжения. В компактной компоновке эта же карточка ниже
+  // волосяной линии продолжается полосой действий, которую рисует панель.
   drawReadout(area, state, simulator, scale, compact) {
     let dock = motorViewDockBounds(area, scale, compact);
     let x = dock.x;
@@ -618,10 +769,11 @@ class MotorView {
     fillTheme(theme().readoutText);
     textAlign(LEFT, TOP);
     if (compact) {
-      // Six values will not sit on two lines at this width, and shrinking them
-      // to fit would undo the point of the layout. A two-column grid keeps the
-      // mechanical quantities together on the left and the electrical on the
-      // right, and its height is fixed whatever the numbers read.
+      // Шесть значений в две строки при такой ширине не встанут, а уменьшать их
+      // до нужного размера — значит потерять смысл компактной компоновки.
+      // Сетка из двух колонок держит механические величины слева, а
+      // электрические справа, и её высота не зависит от того, какие числа
+      // выпали.
       let values = [speed, motorTorque, loadTorque, currentD, currentQ, voltage];
       textSize(12.5 * scale);
       for (let i = 0; i < values.length; i++) {
@@ -652,6 +804,9 @@ class MotorView {
     }
   }
 
+  // Полярные координаты от центра машины в точку на полотне. Синус
+  // вычитается: у полотна ось y направлена вниз, а углы здесь
+  // математические — против часовой стрелки от оси α.
   pointX(angle, radius) {
     return this.centerX + radius * cos(angle);
   }
@@ -660,6 +815,9 @@ class MotorView {
     return this.centerY - radius * sin(angle);
   }
 
+  // Длина, которой на картинке соответствует предельный ток: почти вся
+  // расточка статора. От неё считается масштаб и вектора тока, и его проекций,
+  // и области, внутри которой можно тянуть ручное задание тока.
   currentVectorMaximumLength() {
     return this.statorInnerRadius * 0.94;
   }
@@ -668,6 +826,11 @@ class MotorView {
     return this.currentVectorMaximumLength() / this.parameters.maximumCurrent;
   }
 
+  // Нажатие внутри машины. Тянуть можно только в ручном режиме и только
+  // внутри области, соответствующей предельной величине вектора: за её
+  // границей задание всё равно было бы ограничено, а хватать полотно целиком
+  // незачем. Геометрия пересчитывается здесь же — нажатие может прийти до
+  // первого кадра после изменения размера окна.
   mousePressed(px, py, area, controller, compact) {
     this.updateGeometry(area, compact);
     if (this.settings.mode != MODE_MANUAL) return;
@@ -678,22 +841,35 @@ class MotorView {
     }
   }
 
+  // Протягивание засчитывается только если нажатие началось внутри статора:
+  // иначе ползунок, который тянут за пределы панели, дёргал бы заодно и
+  // вектор.
   mouseDragged(px, py, area, controller, compact) {
     if (!this.manualDragging || this.settings.mode != MODE_MANUAL) return;
     this.updateGeometry(area, compact);
     this.updateManualVector(px, py, controller);
   }
 
+  // Отпускание. Заданный вектор остаётся там, где его оставили: убирать
+  // задание при отпускании значило бы, что машину нельзя вывести в режим и
+  // просто посмотреть на него.
   mouseReleased() {
     this.manualDragging = false;
   }
 
+  // Радиус области перетаскивания: у тока и напряжения свои масштабы, а
+  // значит, и свои предельные длины.
   manualVectorMaximumLength() {
     return this.settings.manualVectorType == MANUAL_VECTOR_CURRENT
       ? this.currentVectorMaximumLength()
       : this.statorInnerRadius * 0.91;
   }
 
+  // Точка на полотне превращается в задание: длина — в величину (с
+  // ограничением на границе области), угол — в фазу. viewRotation здесь
+  // прибавляется, а не вычитается: это обратный перевод, с экрана в физические
+  // координаты, и при зафиксированных осях d–q задание получается в той
+  // системе, которую человек видит.
   updateManualVector(px, py, controller) {
     let dx = px - this.centerX;
     let dy = this.centerY - py;

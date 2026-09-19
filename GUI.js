@@ -1,19 +1,51 @@
+// Интерфейс: выбор компоновки, виджеты и панель управления.
+//
+// Всё здесь рисуется на том же полотне, что и машина: ни одного элемента HTML,
+// кроме самого canvas, в программе нет. Поэтому у каждого виджета две
+// обязанности — нарисовать себя в заданном прямоугольнике и ответить, попало ли
+// в него нажатие; своей позиции виджет не выбирает, её задаёт раскладка.
+//
+// Устроено это так:
+//
+//   SketchLayout    — делит полотно между машиной и панелью и решает, какая
+//                     компоновка нужна: широкая (машина слева, панель справа)
+//                     или компактная (машина на весь экран, органы управления в
+//                     шторке снизу).
+//   виджеты         — ползунок, флажок, строка кнопок, полоса действий.
+//   ControlPanel    — раскладывает виджеты под выбранную компоновку, рисует их
+//                     и разбирает нажатия.
+//
+// Раскладка и рисование намеренно разделены: layout* расставляет элементы в
+// массив items, renderItems() его рисует, hitTestItems() по нему же разбирает
+// нажатия. Поэтому нажатие всегда попадает ровно туда, где элемент нарисован, и
+// координаты не приходится повторять в двух местах.
+//
+// Значения виджетов не пишутся в настройки сразу: applyWidgetValues() переносит
+// их все разом после каждого действия, а syncWidgetsFromSettings() — наоборот,
+// после сброса. Так в любой момент существует одна пара «настройки — виджеты»,
+// а не две расходящиеся копии.
+
+// Общая прибавка к кеглю текста панели. Вынесена отдельным множителем,
+// потому что подбиралась для читаемости, когда все размеры уже были
+// расставлены, — менять каждое число по отдельности было бы негде.
 const PANEL_FONT_SCALE = 1.15;
-// Both mobile platform guidelines land on roughly the same comfortable touch
-// target, and every control the compact layout lays out is sized against it.
+// Рекомендации обеих мобильных платформ сходятся примерно на одном размере
+// комфортной цели касания, и все органы управления компактной компоновки
+// рассчитываются от него.
 const TOUCH_TARGET_MINIMUM = 44.0;
-// Anything that cannot hold the machine and the panel side by side — a phone in
-// portrait, a narrow window — gets the compact layout instead.
+// Всё, где машина и панель не встают рядом, — телефон в портретной ориентации,
+// узкое окно — получает компактную компоновку.
 const COMPACT_MAXIMUM_ASPECT = 1.1;
 const COMPACT_MAXIMUM_WIDTH = 820.0;
-// The sheet grows with its contents up to this much of the screen, then its
-// rows are shrunk instead, but never below the second fraction of their size.
+// Шторка растёт вместе со своим содержимым до этой доли экрана; дальше вместо
+// роста сжимаются её строки, но не сильнее второй доли от своего размера.
 const SHEET_MAXIMUM_FRACTION = 0.88;
 const SHEET_MINIMUM_FRACTION = 0.30;
 const SHEET_MINIMUM_ROW_FIT = 0.72;
-// How far the sheet header has to be pulled down before the sheet closes.
+// Насколько нужно потянуть шапку шторки вниз, чтобы шторка закрылась.
 const SHEET_DISMISS_DISTANCE = 70.0;
 
+// Вкладки шторки. Индексы совпадают с индексами кнопок в строке вкладок.
 const TAB_CONTROL = 0;
 const TAB_VISUALISATION = 1;
 
@@ -24,8 +56,9 @@ const TOOLBAR_PAUSE = 1;
 const TOOLBAR_RESET = 2;
 const TOOLBAR_SETTINGS = 3;
 
-// Shrinks a label until it fits, for the few headings that are set in one line
-// at whatever width the screen happens to be.
+// Уменьшает кегль подписи, пока та не уложится в заданную ширину. Нужна для
+// тех немногих надписей, которые набираются в одну строку при любой ширине
+// экрана: заголовков панели и подписей на кнопках.
 function fittedTextSize(label, maximumWidth, desiredSize, minimumSize) {
   let size = desiredSize;
   while (size > minimumSize) {
@@ -37,8 +70,10 @@ function fittedTextSize(label, maximumWidth, desiredSize, minimumSize) {
   return size;
 }
 
-// Packs pre-measured pieces into as few lines as fit the width. Used for the
-// legend and the readout, whose contents differ by mode and by locale width.
+// Раскладывает заранее измеренные куски по минимальному числу строк, которые
+// влезают в ширину. Нужна легенде и показаниям: их состав зависит от режима, а
+// ширина — от языка и от экрана, так что заранее рассчитать её нельзя.
+// Возвращает строки как списки индексов — сами куски остаются у вызывающего.
 function flowIntoLines(widths, gap, maximumWidth) {
   let lines = [];
   let current = [];
@@ -58,6 +93,9 @@ function flowIntoLines(widths, gap, maximumWidth) {
   return lines;
 }
 
+// Прямоугольник. Полотно делится именно на такие области, и каждая из них
+// передаётся дальше как есть — так и машина, и панель рисуют в своих границах,
+// не зная ничего о соседе.
 class Area {
   x;
   y;
@@ -76,30 +114,44 @@ class Area {
   }
 }
 
+// Выбор компоновки и деление полотна.
+//
+// Компоновок две, и выбирается та, что подходит текущему размеру окна:
+// широкая отдаёт машине левую половину, а панели — правую; компактная отдаёт
+// весь экран и той, и другой, потому что панель в ней не колонка, а шторка
+// поверх машины.
 class SketchLayout {
   motorArea = new Area();
   panelArea = new Area();
   compact = false;
   forcedMode = null;
 
+  // Раз в кадр: размер окна может измениться в любой момент, в том числе
+  // поворотом телефона.
   update(sketchWidth, sketchHeight) {
     this.compact = this.resolveCompact(sketchWidth, sketchHeight);
     if (this.compact) {
-      // The panel floats above the machine rather than taking a column from it,
-      // so both get the whole screen and the panel decides what it swallows.
+      // Панель не отбирает у машины колонку, а лежит поверх неё, поэтому и той,
+      // и другой отдан весь экран; что именно занято, решает сама панель.
       this.motorArea.set(0.0, 0.0, sketchWidth, sketchHeight);
       this.panelArea.set(0.0, 0.0, sketchWidth, sketchHeight);
       return;
     }
+    // Широкая компоновка: ровно половина полотна каждому.
     let divider = sketchWidth * 0.5;
     this.motorArea.set(0.0, 0.0, divider, sketchHeight);
     this.panelArea.set(divider, 0.0, sketchWidth - divider, sketchHeight);
   }
 
+  // Компактная компоновка включается, если окно у́же своей высоты (портретная
+  // ориентация) или просто у́же 820 px: и в том, и в другом случае машина с
+  // панелью рядом не встанут.
   resolveCompact(sketchWidth, sketchHeight) {
     if (this.forcedMode === null) {
-      // ?layout=compact and ?layout=desktop let either layout be opened from
-      // either kind of screen, which is the only way to check one from the other.
+      // ?layout=compact и ?layout=desktop позволяют открыть любую компоновку с
+      // любого экрана — иначе проверить одну из них со второго устройства
+      // попросту нечем. Значение читается один раз и запоминается: адрес по
+      // ходу работы не меняется.
       let requested = null;
       if (typeof window !== "undefined" && window.location) {
         requested = new URLSearchParams(window.location.search).get("layout");
@@ -112,6 +164,11 @@ class SketchLayout {
   }
 }
 
+// Ползунок: подпись, значение справа, дорожка и ручка.
+//
+// Значение хранится в самом ползунке, а в настройки переносится панелью
+// (applyWidgetValues). Диапазон задаётся при создании и берётся из паспорта
+// машины — так ползунок не может задать того, чего машина не умеет.
 class SliderControl {
   label;
   suffix;
@@ -144,10 +201,11 @@ class SliderControl {
     this.scale = scale;
   }
 
-  // The track and the handle are proportions of the row rather than multiples
-  // of the text scale, so a row stretched to a touch target carries a handle
-  // and a hit band stretched with it. At the desktop row height of 39 · scale
-  // these reproduce the original 25 · scale and 13 · scale exactly.
+  // Дорожка и ручка заданы долями высоты строки, а не кратными масштабу
+  // текста: тогда строка, растянутая до размера цели касания, растягивает
+  // вместе с собой и ручку, и область попадания. При высоте строки широкой
+  // компоновки 39 · scale эти доли в точности повторяют исходные 25 · scale и
+  // 13 · scale.
   trackY() {
     return this.y + this.h * 0.641;
   }
@@ -178,6 +236,10 @@ class SliderControl {
     circle(this.x + this.w * fraction, trackY, this.handleDiameter());
   }
 
+  // Значение у подписи. Крупные числа и широкие диапазоны показываются целыми:
+  // десятые доли оборота в минуту ничего не добавляют, зато дёргают ширину
+  // строки при каждом изменении. showPositiveSign нужен там, где важен знак
+  // (задание скорости): знак тогда печатается всегда, кроме нуля.
   formatValue(number) {
     let displayedNumber = this.showPositiveSign ? abs(number) : number;
     let formatted;
@@ -190,6 +252,10 @@ class SliderControl {
     return (number > 0.0 ? "+" : "−") + formatted;
   }
 
+  // Нажатие захватывает ползунок и сразу переносит ручку под палец: тянуть от
+  // её прежнего положения неудобно, а на касании ручку под пальцем не видно.
+  // Область попадания чуть шире дорожки, чтобы крайние значения можно было
+  // выставить у самого её края.
   press(px, py) {
     if (!this.visible) return false;
     if (px >= this.x - 8.0 * this.scale && px <= this.x + this.w + 8.0 * this.scale
@@ -201,6 +267,8 @@ class SliderControl {
     return false;
   }
 
+  // Перетаскивание учитывает только координату x: увести палец вбок по
+  // вертикали легко, и терять из-за этого захват было бы обидно.
   drag(px) {
     if (!this.dragging) return false;
     this.updateFromMouse(px);
@@ -217,6 +285,8 @@ class SliderControl {
   }
 }
 
+// Флажок: квадратик и подпись. Всё состояние — один признак checked; что он
+// означает, знает только панель.
 class CheckboxControl {
   label;
   checked;
@@ -242,8 +312,9 @@ class CheckboxControl {
 
   drawControl() {
     if (!this.visible) return;
-    // The box and the label keep their own size and sit centred in the row, so
-    // growing the row to a touch target grows the hit area and not the text.
+    // Квадратик и подпись сохраняют свой размер и стоят по центру строки:
+    // растягивание строки до цели касания увеличивает область попадания, а не
+    // текст.
     let boxSize = 15.0 * this.scale;
     let boxY = this.y + (this.h - boxSize) * 0.5;
     strokeTheme(theme().checkboxBorder);
@@ -256,8 +327,8 @@ class CheckboxControl {
       rect(this.x + 3.0 * this.scale, boxY + 3.0 * this.scale,
         boxSize - 6.0 * this.scale, boxSize - 6.0 * this.scale, 2.0 * this.scale);
     }
-    // The box outline is still set as the stroke; without clearing it the label
-    // is drawn outlined and reads as bold next to the checked ones.
+    // Обводка квадратика всё ещё стоит как текущий контур; без сброса подпись
+    // рисовалась бы с обводкой и выглядела бы полужирной.
     noStroke();
     fillTheme(theme().checkboxLabel);
     textAlign(LEFT, CENTER);
@@ -273,9 +344,12 @@ class CheckboxControl {
   }
 }
 
-// A row of equally wide buttons. The segmented rows — control mode, manual
-// vector type, the sheet's tabs — mark one entry as selected; the pause and
-// reset pair marks none, or the pause entry while the simulation is held.
+// Строка кнопок равной ширины. Одним классом сделаны и переключатели, где
+// выбран ровно один элемент (режим управления, тип ручного вектора, вкладки
+// шторки), и пара «Пауза»/«Сброс», где не выбрано ничего — кроме паузы, пока
+// модель остановлена. Разница только в selectedIndex, который выставляет
+// панель; сама строка про смысл своих кнопок ничего не знает и на нажатие
+// отвечает лишь индексом.
 class ButtonRowControl {
   labels;
   selectedIndex = -1;
@@ -301,6 +375,9 @@ class ButtonRowControl {
     this.scale = scale;
   }
 
+  // Ширина одной кнопки: остаток ширины после промежутков, поделённый на число
+  // кнопок. Поэтому строка занимает отведённую ширину целиком при любом их
+  // количестве.
   buttonWidth() {
     return (this.w - this.gap * (this.labels.length - 1)) / this.labels.length;
   }
@@ -339,6 +416,8 @@ class ButtonRowControl {
 
 // Значки полосы действий. Они рисуются, а не набираются шрифтом: шрифта с
 // такими символами может не оказаться, и тогда кнопка осталась бы пустой.
+// Значки полосы действий. Они рисуются, а не набираются шрифтом: шрифта с
+// такими символами в системе может не оказаться, и кнопка осталась бы пустой.
 const ICON_SETTINGS = 0;
 const ICON_PAUSE = 1;
 const ICON_PLAY = 2;
@@ -346,6 +425,9 @@ const ICON_SUN = 3;
 const ICON_MOON = 4;
 const ICON_RESET = 5;
 
+// Все значки полосы действий одной функцией. Размер передаётся, и от него
+// считаются все пропорции значка: полоса действий меняет высоту вместе с
+// масштабом компактной компоновки.
 function drawControlIcon(icon, centreX, centreY, size, glyphColor) {
   strokeTheme(glyphColor);
   strokeWeight(size * 0.09);
@@ -433,6 +515,10 @@ function drawCrescentGlyph(cx, cy, radius) {
 // показаний, поэтому это не кнопки поверх машины, а сегменты одной детали —
 // значок со своей подписью, разделители волосяной линией, подсветка у
 // включённого действия.
+// Полоса действий компактной компоновки. Она занимает нижнюю часть карточки
+// показаний, поэтому это не кнопки поверх машины, а сегменты одной детали —
+// значок со своей подписью, разделители волосяной линией, подсветка у
+// включённого действия.
 class ToolbarControl {
   segments;
   activeIndex = -1;
@@ -455,6 +541,8 @@ class ToolbarControl {
     this.scale = scale;
   }
 
+  // Сегменты равной ширины, без промежутков: это одна деталь, разделённая
+  // линиями, а не четыре отдельные кнопки.
   segmentWidth() {
     return this.w / this.segments.length;
   }
@@ -502,6 +590,12 @@ class ToolbarControl {
   }
 }
 
+// Панель управления: все виджеты, обе раскладки и разбор нажатий.
+//
+// Виджеты создаются один раз в конструкторе и живут всё время работы — в обеих
+// компоновках это одни и те же объекты, меняется только их расстановка. Те, что
+// в текущем режиме не нужны, просто не попадают в раскладку и получают
+// visible = false: тогда они не рисуются и не ловят нажатия.
 class ControlPanel {
   parameters;
   settings;
@@ -511,6 +605,7 @@ class ControlPanel {
   profile;
   lastArea = new Area();
 
+  // Ползунки: нагрузка действует во всех режимах, остальные — каждый в своём.
   loadSlider;
   voltageSlider;
   frequencySlider;
@@ -521,6 +616,7 @@ class ControlPanel {
   speedKpSlider;
   speedKiSlider;
 
+  // Флажки: первый включает контур скорости, остальные относятся к картинке.
   speedLoopCheckbox;
   voltageCheckbox;
   emfCheckbox;
@@ -531,25 +627,34 @@ class ControlPanel {
   lockDqCheckbox;
   themeCheckbox;
 
+  // Строки кнопок и полоса действий компактной компоновки.
   modeButtons;
   manualVectorButtons;
   actionButtons;
   tabButtons;
   toolbar;
 
+  // Списки «все ползунки», «все флажки», «все строки кнопок» нужны там, где
+  // действие одинаково для всех: спрятать перед раскладкой, отпустить при
+  // потере указателя, собрать значения.
   allSliders;
   allCheckboxes;
   allButtonRows;
 
   scale = 1.0;
   compact = false;
+  // Состояние компактной компоновки: поднята ли шторка, где её верхний край,
+  // докуда простирается её шапка (ниже неё потянуть шторку вниз нельзя — там
+  // уже органы управления) и с какой точки началось её протягивание.
   sheetOpen = false;
   sheetTop = 0.0;
   sheetHeaderBottom = 0.0;
   sheetDragStartY = null;
   activeTab = TAB_CONTROL;
-  // Layout writes the positioned entries here and both rendering and hit
-  // testing read them, so a control's rectangle is decided in exactly one place.
+  // Раскладка пишет сюда уже расставленные элементы, а рисование и разбор
+  // нажатий их читают: прямоугольник каждого органа управления определяется
+  // ровно в одном месте, и нажатие не может попасть туда, где ничего не
+  // нарисовано.
   items = [];
   lastState = null;
   lastSimulator = null;
@@ -575,8 +680,9 @@ class ControlPanel {
     this.speedSlider = new SliderControl("Задание скорости", " об/мин",
       -1000.0, 1000.0, settings.speedReferenceRpm);
     this.speedSlider.showPositiveSign = true;
-    // Ranges bracket the tuning for J = 0.1: below Kp = 4 the step overshoots
-    // visibly, and Ki past 60 trades settling time for a taller first peak.
+    // Диапазоны обступают настройку для J = 0,1: ниже Kp = 4 переходный процесс
+    // заметно перерегулирует, а Ki больше 60 сокращает время установления ценой
+    // более высокого первого выброса.
     this.speedKpSlider = new SliderControl("Kp регулятора скорости", "",
       0.0, 10.0, settings.speedKp);
     this.speedKpSlider.decimalPlaces = 2;
@@ -626,6 +732,8 @@ class ControlPanel {
     ];
   }
 
+  // Раздел «Визуализация» — один и тот же список в обеих компоновках: в широкой
+  // он идёт двумя колонками внизу панели, в компактной — вкладкой шторки.
   visualisationCheckboxes() {
     return [
       this.voltageCheckbox, this.emfCheckbox, this.alphaBetaAxesCheckbox, this.dqAxesCheckbox,
@@ -634,6 +742,9 @@ class ControlPanel {
     ];
   }
 
+  // Кадр панели. Модель и симулятор запоминаются, потому что нужны не здесь, а
+  // в drawStatusCard: рисование разнесено по renderItems и передавать их через
+  // всю цепочку было бы шумно.
   draw(area, motor, simulator, compact) {
     this.compact = compact;
     this.lastArea.set(area.x, area.y, area.w, area.h);
@@ -644,6 +755,9 @@ class ControlPanel {
     else this.drawDesktop(area);
   }
 
+  // Подсветки и подписи, которые зависят не от значений виджетов, а от
+  // состояния программы: выбранный режим, пауза, активная вкладка, текущая
+  // тема. Пересчитываются каждый кадр — их могли изменить и клавиатурой.
   syncSelections() {
     this.modeButtons.selectedIndex = this.settings.mode;
     this.manualVectorButtons.selectedIndex = this.settings.manualVectorType;
@@ -657,6 +771,9 @@ class ControlPanel {
     this.toolbar.activeIndex = simulationPaused ? TOOLBAR_PAUSE : -1;
   }
 
+  // Перед каждой раскладкой всё скрывается, а показывается заново только то,
+  // что в неё попало. Иначе виджет, убранный из раскладки сменой режима,
+  // продолжал бы ловить нажатия там, где его давно не рисуют.
   hideAllControls() {
     for (const slider of this.allSliders) slider.visible = false;
     for (const checkbox of this.allCheckboxes) checkbox.visible = false;
@@ -666,6 +783,9 @@ class ControlPanel {
 
   // -- layout helpers -------------------------------------------------------
 
+  // Элементы раскладки. Заголовок, название раздела, карточка показаний и
+  // подсказка — это не виджеты: они ничего не принимают, только рисуются, —
+  // поэтому в items они лежат описаниями, а не объектами.
   addTitle(label, x, y, w, size) {
     this.items.push({ kind: "title", x, y, w, h: size, label, size });
   }
@@ -686,6 +806,8 @@ class ControlPanel {
 
   // -- desktop --------------------------------------------------------------
 
+  // Широкая компоновка: панель — колонка справа, с тонкой линией по левому
+  // краю. Порядок неизменный — сначала раскладка, потом фон, потом элементы.
   drawDesktop(area) {
     this.scale = constrain(min(area.w / 640.0, area.h / 720.0), 0.68, 1.35);
     this.layoutDesktop(area);
@@ -698,6 +820,10 @@ class ControlPanel {
     this.renderItems();
   }
 
+  // Раскладка широкой компоновки, сверху вниз: заголовок, выбор режима,
+  // нагрузка, показания, органы управления текущего режима, раздел
+  // «Визуализация» двумя колонками. Кнопки «Пауза» и «Сброс» прижаты к нижнему
+  // краю панели: они нужны всегда и не должны прыгать вместе со сменой режима.
   layoutDesktop(area) {
     this.hideAllControls();
     this.items = [];
@@ -736,8 +862,9 @@ class ControlPanel {
     let columnWidth = (contentWidth - columnGap) * 0.5;
     let visualChecks = this.visualisationCheckboxes();
     for (let i = 0; i < visualChecks.length; i++) {
-      // Processing truncated this division because i was an int; in JavaScript
-      // it yields halves, which staggered the two columns by half a row.
+      // В Processing это деление отбрасывало дробную часть, потому что i было
+      // целым; в JavaScript оно даёт половины, и колонки разъезжались на
+      // полстроки. Отсюда явный floor.
       let row = floor(i / 2);
       let column = i % 2;
       // Полная ширина нужна только последнему флажку, если он остался один в
@@ -749,13 +876,17 @@ class ControlPanel {
       this.addControl(visualChecks[i]);
     }
 
+    // Отсчёт от нижнего края области, а не от накопленного y: сколько бы места
+    // ни заняли органы управления режима, эта пара кнопок стоит на одном месте.
     this.actionButtons.setBounds(contentX, area.y + area.h - 46.0 * scale, contentWidth,
       32.0 * scale, 9.0 * scale, scale);
     this.addControl(this.actionButtons);
   }
 
-  // Shared by both layouts: the mode buttons decide which references are on
-  // offer, and that set is the same whichever way the panel is arranged.
+  // Общая часть обеих компоновок: какие задания предлагать, решает выбранный
+  // режим, и набор этот один и тот же независимо от того, как расставлена
+  // панель. Отсюда и параметры вместо готовых чисел — высоты строк в компактной
+  // компоновке другие.
   layoutModeControls(contentX, y, contentWidth, sliderHeight, rowHeight, compact) {
     let scale = this.scale;
     let sliderAdvance = sliderHeight + 4.0 * scale;
@@ -771,8 +902,8 @@ class ControlPanel {
         this.addControl(this.manualVectorButtons);
         y += (compact ? rowHeight : 30.0 * scale) + 9.0 * scale;
       }
-      // The same sentence wraps to three lines in a phone-width column, and a
-      // hint clipped halfway through is worse than no hint at all.
+      // Та же фраза в колонке шириной с телефон переносится на три строки, а
+      // подсказка, обрезанная на середине, хуже, чем никакая.
       let hintHeight = (compact ? 78.0 : 48.0) * scale;
       this.items.push({ kind: "hint", x: contentX, y, w: contentWidth, h: hintHeight });
       y += hintHeight + 10.0 * scale;
@@ -811,11 +942,16 @@ class ControlPanel {
 
   // -- compact --------------------------------------------------------------
 
+  // Компактная компоновка. Пока шторка опущена, от панели видна только полоса
+  // действий в нижней карточке — всё остальное место у машины.
   drawCompact(area) {
     this.scale = constrain(area.w / 360.0, 0.92, 1.30);
     this.hideAllControls();
     this.items = [];
 
+    // Полоса действий занимает нижнюю часть карточки показаний, которую машина
+    // уже нарисовала: место под неё отведено там же, где считается вся нижняя
+    // карточка, поэтому кнопки не накрывают ни обмотку, ни цифры.
     // Полоса действий занимает нижнюю часть карточки показаний, которую машина
     // уже нарисовала: место под неё отведено там же, где считается вся нижняя
     // карточка, поэтому кнопки не накрывают ни обмотку, ни цифры.
@@ -828,14 +964,17 @@ class ControlPanel {
       this.toolbar.drawControl();
       return;
     }
-    // While the sheet is up the toolbar would sit under its controls, and
-    // everything it does is already in the sheet: the action row holds pause,
-    // the visualisation tab holds the theme, the scrim and the handle close it.
+    // Пока шторка поднята, полоса действий оказалась бы под её органами
+    // управления, а всё, что она делает, в шторке уже есть: пауза и сброс — в
+    // строке действий, тема — на вкладке «Визуализация», закрывают шторку
+    // затемнение и её верхний край.
     this.toolbar.visible = false;
 
-    // Lay the sheet out against a zero origin to learn how tall it wants to be,
-    // shrinking the rows if the screen cannot give it that, and only then place
-    // it for real at the settled height.
+    // Высота шторки не задана заранее: она зависит от режима, от того, включён
+    // ли контур скорости, и от выбранной вкладки. Поэтому раскладка сначала
+    // выполняется от нулевого начала — только чтобы узнать нужную высоту; если
+    // экран столько не даёт, строки сжимаются, и раскладка повторяется. Трёх
+    // попыток хватает: сжатие уменьшает высоту пропорционально.
     let rowFit = 1.0;
     let sheetHeight = 0.0;
     for (let pass = 0; pass < 3; pass++) {
@@ -862,7 +1001,9 @@ class ControlPanel {
     this.renderItems();
   }
 
-  // Builds the sheet at the given origin and reports the height it needs.
+  // Раскладывает шторку от заданного начала и возвращает высоту, которая ей
+  // нужна. Та же функция служит и меркой, и настоящей раскладкой — иначе
+  // измеренная высота могла бы разойтись с нарисованной.
   layoutSheet(area, rowFit, originY) {
     this.hideAllControls();
     this.items = [];
@@ -878,8 +1019,9 @@ class ControlPanel {
     this.addControl(this.tabButtons);
     y += rowHeight + 12.0 * scale;
 
-    // The machine's own readout is behind the sheet while it is open, so the
-    // live values travel with the controls that change them.
+    // Пока шторка поднята, собственные показания машины за ней не видны,
+    // поэтому текущие значения повторяются здесь же, рядом с органами
+    // управления, которые их меняют.
     this.items.push({ kind: "status", x: contentX, y, w: contentWidth, h: 61.0 * scale });
     y += 70.0 * scale;
     this.sheetHeaderBottom = y;
@@ -914,6 +1056,8 @@ class ControlPanel {
 
   // -- rendering ------------------------------------------------------------
 
+  // Рисование по готовой раскладке. Обе компоновки сходятся здесь: расставлять
+  // элементы они умеют по-разному, а рисуются те одинаково.
   renderItems() {
     for (const item of this.items) {
       switch (item.kind) {
@@ -942,6 +1086,9 @@ class ControlPanel {
     }
   }
 
+  // Карточка с тремя главными величинами: скорость, ток, момент. В широкой
+  // компоновке стоит под ползунком нагрузки, в компактной повторяется в шапке
+  // шторки — там собственные показания машины закрыты.
   drawStatusCard(x, y, w, h) {
     let state = this.lastState;
     noStroke();
@@ -957,6 +1104,7 @@ class ControlPanel {
       "МОМЕНТ", nf(state.electromagneticTorque, 1, 2) + " Н·м");
   }
 
+  // Скорость со знаком, но без «−0»: у нуля знака нет.
   formatPanelSpeed(rpm) {
     let roundedMagnitude = round(abs(rpm));
     if (roundedMagnitude == 0) return "0";
@@ -973,6 +1121,8 @@ class ControlPanel {
     text(value, x, y + 19.0 * this.scale);
   }
 
+  // Подсказка ручного режима. Это единственный режим, где задание берётся не с
+  // ползунка, а мышью по картинке, и без подсказки догадаться об этом нельзя.
   drawManualHint(x, y, w, h) {
     noStroke();
     fillTheme(theme().hintCard);
@@ -983,19 +1133,23 @@ class ControlPanel {
     let vectorName = this.settings.manualVectorType == MANUAL_VECTOR_CURRENT
       ? "тока — регуляторы поддерживают i*"
       : "напряжения — u* подаётся напрямую";
-    // On a phone the stator is behind this very sheet, and the instruction is
-    // useless without saying so first.
+    // На телефоне статор закрыт этой самой шторкой, и указание тянуть внутри
+    // статора без такой оговорки бесполезно.
     let opening = this.compact
       ? "Закройте настройки и тяните внутри статора,"
       : "Нажмите и тяните внутри статора,";
-    // The box form measures from the top edge, so the card's own y goes in and
-    // the vertical CENTER alignment does the centring.
+    // Текст в прямоугольнике отсчитывается от верхнего края, поэтому передаётся
+    // собственный y карточки, а по вертикали центрирует выравнивание CENTER.
     text(opening + "\nчтобы задать вектор " + vectorName + ".",
       x + 11.0 * this.scale, y, w - 22.0 * this.scale, h);
   }
 
   // -- input ----------------------------------------------------------------
 
+  // Нажатие. Возвращает true, если панель его забрала: тогда машина его уже не
+  // получит (см. pointerPressed в PMSMmodel.js). В широкой компоновке панель
+  // забирает всё, что попало в её колонку, даже если там нет ни одного
+  // виджета, — иначе нажатие «сквозь панель» тянуло бы вектор в статоре.
   mousePressed(px, py) {
     if (this.compact) return this.compactMousePressed(px, py);
     if (!this.lastArea.contains(px, py)) return false;
@@ -1003,6 +1157,9 @@ class ControlPanel {
     return true;
   }
 
+  // Нажатие в компактной компоновке: сначала полоса действий, затем шторка.
+  // Если шторка опущена и в полосу не попали, панель нажатие не забирает — оно
+  // уходит машине, и вектор можно тянуть прямо по статору.
   compactMousePressed(px, py) {
     let segment = this.toolbar.press(px, py);
     if (segment === TOOLBAR_THEME) {
@@ -1025,8 +1182,8 @@ class ControlPanel {
     }
     if (!this.sheetOpen) return false;
     if (py < this.sheetTop) {
-      // Tapping the machine behind the sheet dismisses it rather than starting
-      // a manual vector drag the finger cannot see.
+      // Касание машины за шторкой закрывает шторку, а не начинает
+      // перетаскивание вектора, которого из-под неё всё равно не видно.
       this.sheetOpen = false;
       return true;
     }
@@ -1036,6 +1193,10 @@ class ControlPanel {
     return true;
   }
 
+  // Разбор нажатия по той же раскладке, по которой всё нарисовано. Строки
+  // кнопок обрабатываются отдельно: у них не значение, а выбранный индекс, и
+  // каждая означает своё. Остальные виджеты одинаковы — достаточно перенести
+  // значения в настройки.
   hitTestItems(px, py) {
     for (const item of this.items) {
       if (item.kind !== "control") continue;
@@ -1069,7 +1230,9 @@ class ControlPanel {
       if (control.press(px, py)) {
         this.applyWidgetValues();
         if (control === this.lockDqCheckbox) {
-          // Capture the rotor angle at the actual click, before the next physics frame.
+          // Угол ротора нужно запомнить в момент самого нажатия, до следующего
+          // шага модели: иначе картинка зафиксируется на положении, которого
+          // при нажатии ещё не было.
           motorView.updateReferenceFrame(motor.state);
         }
         return true;
@@ -1078,6 +1241,9 @@ class ControlPanel {
     return false;
   }
 
+  // Перетаскивание. Ползунки идут первыми и списком, а не по раскладке: палец
+  // давно мог уйти за пределы своего ползунка, но захват сохраняется — иначе
+  // значение срывалось бы на первом же неточном движении.
   mouseDragged(px, py) {
     let handled = false;
     for (const slider of this.allSliders) {
@@ -1100,11 +1266,16 @@ class ControlPanel {
     return this.lastArea.contains(px, py);
   }
 
+  // Отпускание: отпустить все ползунки и забыть начатое протягивание шторки.
+  // Вызывается и при потере указателя системой (см. PMSMmodel.js).
   mouseReleased() {
     for (const slider of this.allSliders) slider.release();
     this.sheetDragStartY = null;
   }
 
+  // Виджеты → настройки. Переносится всё сразу, а не только то, что изменилось:
+  // значения независимые, и разбираться, какое из них тронули, дороже, чем
+  // переписать все.
   applyWidgetValues() {
     this.settings.loadTorque = this.loadSlider.value;
     this.settings.openLoopVoltage = this.voltageSlider.value;
@@ -1129,6 +1300,9 @@ class ControlPanel {
     if (requestedTheme !== currentThemeName()) setTheme(requestedTheme);
   }
 
+  // Настройки → виджеты. Обратное направление нужно после сброса и после
+  // переключения темы клавишей: настройки изменились не через панель, и виджеты
+  // об этом иначе не узнают.
   syncWidgetsFromSettings() {
     this.loadSlider.value = this.settings.loadTorque;
     this.voltageSlider.value = this.settings.openLoopVoltage;

@@ -1,3 +1,23 @@
+// Точка входа программы: здесь живут функции, которые вызывает сам p5 —
+// setup(), draw(), обработчики мыши, клавиатуры и изменения размера окна.
+//
+// Имя файла совпадает с именем папки скетча: этого требует Processing в режиме
+// p5.js, поэтому переименовать его нельзя (см. sketch.properties).
+//
+// Порядок работы кадра простой и всегда один и тот же:
+//
+//   1. SketchLayout решает, какая компоновка нужна под текущий размер окна, и
+//      делит полотно между машиной и панелью.
+//   2. FixedStepSimulator прокручивает модель на 1 мс модельного времени.
+//   3. MotorView рисует машину, векторы и показания, ControlPanel — панель.
+//
+// Ни модель, ни регуляторы про p5 ничего не знают; вся связь с браузером
+// собрана в этом файле. Глобальные переменные здесь — это стиль самого p5:
+// скетч один на страницу, и объекты создаются в setup() ровно по одному.
+
+// Всё хозяйство скетча. Создаётся один раз в setup(); до этого здесь
+// undefined, и обработчики событий, которые p5 может вызвать раньше,
+// проверяют это явно (см. pointerReleased).
 let activeProfile;
 let motorParameters;
 let controlSettings;
@@ -8,18 +28,27 @@ let sketchLayout;
 let motorView;
 let controlPanel;
 
+// Пауза — общий переключатель: её видят и полоса действий, и кнопка в панели,
+// и показания. diagnosticsMode включается ссылкой ?self-test: тогда полотно не
+// создаётся вовсе, а страница показывает итог диагностических тестов.
 let simulationPaused = false;
 let diagnosticsMode = false;
 
-// Phone screens report a device pixel ratio of 3 or more. Rendering the stator,
-// the vectors and the torque arcs into a buffer that large costs more than the
-// extra sharpness is worth at 60 FPS with ten physics steps per frame.
+// Экраны телефонов сообщают плотность пикселей 3 и выше. Рисовать статор,
+// векторы и дуги моментов в буфер такого размера дороже, чем стоит добавочная
+// резкость: на кадр и без того приходится десять шагов модели, а держать нужно
+// 60 кадров в секунду. Двух пикселей на точку хватает, чтобы линии не рябили.
 const MAXIMUM_PIXEL_DENSITY = 2.0;
 
+// p5 вызывает setup() один раз перед первым кадром. Здесь решается три вещи:
+// какой профиль показывает страница, нужно ли вместо программы прогнать
+// самотестирование, и как устроено полотно.
 function setup() {
   activeProfile = resolveDemoProfile();
   document.title = activeProfile.documentTitle;
 
+  // Те же тесты, что и npm test, но прямо в браузере: полотно не создаётся,
+  // цикл кадров останавливается, итог печатается на странице и в консоль.
   if (new URLSearchParams(window.location.search).has("self-test")) {
     diagnosticsMode = true;
     noCanvas();
@@ -29,6 +58,9 @@ function setup() {
     return;
   }
 
+  // В Processing окно скетча задаётся размером, а не растягивается по
+  // документу, поэтому там полотно фиксированное; в браузере оно занимает
+  // всю область просмотра и меняется вместе с ней.
   const runningInProcessing = typeof window.pde !== "undefined";
   const viewport = viewportSize();
   const canvas = createCanvas(
@@ -38,27 +70,34 @@ function setup() {
   const browserContainer = document.getElementById("app");
   if (browserContainer) canvas.parent(browserContainer);
   pixelDensity(min(displayDensity(), MAXIMUM_PIXEL_DENSITY));
+  // Частота кадров задана явно: шаг модели привязан к кадру (1 мс на кадр), и
+  // от неё зависит, насколько замедленно идёт показ.
   frameRate(60);
 
-  // A long press inside the stator is a manual-vector drag, not a request for
-  // the context menu.
+  // Долгое нажатие внутри статора — это перетаскивание ручного вектора, а не
+  // просьба показать контекстное меню.
   if (canvas.elt) {
     canvas.elt.addEventListener("contextmenu", (event) => event.preventDefault());
   }
-  // p5 2.x routes touches through pointer events, so mousePressed and friends
-  // already receive them and no touch handlers are needed. It does not report
-  // pointercancel to the sketch, though: when the system takes the pointer away
-  // mid-drag — an edge swipe, a notification, palm rejection — the widget would
-  // stay latched and keep following the next press. Release it ourselves.
+  // p5 2.x проводит касания через события указателя, поэтому mousePressed и
+  // остальные их уже получают и отдельные обработчики касаний не нужны. Но
+  // pointercancel скетчу не передаётся: когда система забирает указатель
+  // посреди перетаскивания — свайп от края, уведомление, отсечение ладони, —
+  // виджет остался бы «залипшим» и продолжил бы следовать за следующим
+  // нажатием. Отпускаем его сами.
   window.addEventListener("pointercancel", pointerReleased);
   window.addEventListener("blur", pointerReleased);
-  // windowResized alone misses the moment a phone finishes rotating: the new
-  // viewport is only reported once the rotation animation ends.
+  // Одного windowResized мало, чтобы поймать конец поворота телефона: новый
+  // размер области просмотра сообщается только после анимации поворота.
   window.addEventListener("orientationchange", () => setTimeout(windowResized, 120));
   if (window.visualViewport) {
     window.visualViewport.addEventListener("resize", windowResized);
   }
 
+  // Сборка программы. Порядок важен: настройки существуют раньше модели и
+  // регуляторов, потому что и те, и другие держат на них ссылку, а профиль
+  // применяется до создания регуляторов и панели — они читают режим в своих
+  // конструкторах.
   motorParameters = new MotorParameters();
   controlSettings = new ControlSettings(motorParameters);
   // Режим выставляется до регуляторов и до панели: и те, и та читают его при
@@ -73,11 +112,15 @@ function setup() {
     activeProfile);
 }
 
+// Кадр: пересчёт компоновки, шаг модели, отрисовка. p5 вызывает draw()
+// столько раз в секунду, сколько задано в frameRate.
 function draw() {
   if (diagnosticsMode) return;
 
   sketchLayout.update(width, height);
   simulator.advanceFrame(simulationPaused);
+  // Система наблюдения пересчитывается до отрисовки, но после шага модели:
+  // при зафиксированных осях d–q картинка поворачивается вслед за ротором.
   motorView.updateReferenceFrame(motor.state);
 
   backgroundTheme(theme().appBackground);
@@ -85,8 +128,10 @@ function draw() {
   controlPanel.draw(sketchLayout.panelArea, motor, simulator, sketchLayout.compact);
 }
 
-// The container carries the viewport height, dynamic units included, so it is a
-// steadier source than windowHeight while a mobile URL bar collapses.
+// Размер берётся у контейнера, а не у окна: в его высоте уже учтены
+// динамические единицы CSS (100dvh), поэтому он не дёргается, пока на телефоне
+// сворачивается адресная строка. windowWidth/windowHeight остаются запасным
+// вариантом — на случай, если разметка вдруг без контейнера.
 function viewportSize() {
   const container = document.getElementById("app");
   const containerWidth = container ? container.clientWidth : 0;
@@ -97,6 +142,9 @@ function viewportSize() {
   };
 }
 
+// Полотно меняет размер только при настоящем изменении области просмотра:
+// resizeCanvas сбрасывает содержимое, а на телефоне это событие приходит и
+// от прокрутки адресной строки, когда размер фактически тот же.
 function windowResized() {
   if (diagnosticsMode) return;
   const viewport = viewportSize();
@@ -104,6 +152,10 @@ function windowResized() {
   resizeCanvas(viewport.width, viewport.height);
 }
 
+// Нажатие, перетаскивание и отпускание разобраны в трёх функциях, а мышь и
+// касание попадают в них одинаково: p5 2.x сводит касания к событиям мыши.
+// Панель получает право на событие первой — она нарисована поверх машины, и в
+// компактной компоновке её шторка закрывает статор.
 function pointerPressed(px, py) {
   if (controlPanel.mousePressed(px, py)) return;
   motorView.mousePressed(px, py, sketchLayout.motorArea, driveController, sketchLayout.compact);
@@ -114,12 +166,17 @@ function pointerDragged(px, py) {
   motorView.mouseDragged(px, py, sketchLayout.motorArea, driveController, sketchLayout.compact);
 }
 
+// Отпускание приходит и от системных событий (pointercancel, потеря фокуса
+// окном), которые могут случиться раньше setup(): отсюда проверка панели.
 function pointerReleased() {
   if (diagnosticsMode || !controlPanel) return;
   controlPanel.mouseReleased();
   motorView.mouseReleased();
 }
 
+// Обработчики p5. Возврат false запрещает браузеру поведение по умолчанию —
+// без этого перетаскивание внутри полотна превращалось бы в выделение текста
+// или в прокрутку страницы.
 function mousePressed() {
   if (diagnosticsMode) return false;
   pointerPressed(mouseX, mouseY);
@@ -137,6 +194,9 @@ function mouseReleased() {
   return false;
 }
 
+// Клавиатура: пробел — пауза, R — сброс, T — тема. Русские буквы «к» и «е»
+// стоят рядом с латинскими на одних клавишах, поэтому при русской раскладке
+// нажатие работает так же, а не молчит.
 function keyPressed() {
   if (key === " ") {
     simulationPaused = !simulationPaused;
@@ -149,6 +209,11 @@ function keyPressed() {
   }
 }
 
+// Сброс по клавише R, кнопке «Сброс» или сегменту полосы действий.
+// Отпустить виджеты нужно первым делом: иначе ползунок, который держат
+// пальцем, тут же вернул бы своё значение в настройки. Выбранный режим и тип
+// ручного вектора сохраняются, тема — тоже: она живёт в localStorage и к
+// параметрам модели не относится.
 function resetSimulation() {
   controlPanel.mouseReleased();
   motorView.mouseReleased();
@@ -160,6 +225,9 @@ function resetSimulation() {
   motorView.resetReferenceFrame();
 }
 
+// Итог самотестирования на странице ?self-test. Подробности печатаются в
+// консоль, здесь — одна строка: прошло или сколько ошибок. Цвета карточки
+// берутся из палитры через CSS-переменные (см. Theme.js и style.css).
 function showDiagnosticResult(failures) {
   document.body.classList.add("diagnostics-page");
   const output = document.createElement("main");

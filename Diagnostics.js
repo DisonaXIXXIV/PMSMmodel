@@ -1,5 +1,28 @@
+// Диагностические тесты: проверяют физику, регуляторы, сброс параметров,
+// профили демонстрации и палитры тем.
+//
+// Запускаются двумя способами, и оба прогоняют один и тот же набор:
+//   npm test                      — в Node (tests/run-diagnostics.js);
+//   http://…/?self-test           — в браузере, той же программой.
+//
+// Тесты намеренно написаны без всякого каркаса: ни библиотеки, ни сборки — иначе
+// вторым способом их было бы не запустить. Проверяются не отдельные функции, а
+// поведение целиком собранной модели с регуляторами: почти каждый тест —
+// это прогон переходного процесса шагами по 100 мкс с проверкой того, куда он
+// пришёл. Допуски поэтому не «машинная точность», а инженерные: важно, что
+// регулятор вывел ток к заданию, а не то, в каком знаке он это сделал.
+//
+// Ошибки не бросают исключений, а считаются в diagnosticFailures и печатаются в
+// консоль: одна неудачная проверка не должна скрыть остальные.
+
+// Счётчик неудачных проверок за прогон. Обнуляется в начале
+// runSimulationDiagnostics, наращивается вспомогательными функциями внизу файла.
 let diagnosticFailures = 0;
 
+// Полный прогон. Возвращает число ошибок: ноль — всё прошло. Порядок
+// примерно от простого к сложному — преобразование координат, режимы
+// управления, защита регуляторов, затем то, что относится не к физике, а к
+// устройству программы.
 function runSimulationDiagnostics() {
   diagnosticFailures = 0;
   console.log("=== PMSM simulation diagnostics ===");
@@ -23,6 +46,9 @@ function runSimulationDiagnostics() {
   return diagnosticFailures;
 }
 
+// Преобразование Парка — поворот, а значит, длина вектора тока в осях d–q и в
+// осях α–β должна быть одной и той же. Самая базовая проверка: если она не
+// проходит, неверны и все остальные величины.
 function testCoordinateTransform() {
   let testParameters = new MotorParameters();
   let testMotor = new PMSMModel(testParameters);
@@ -39,6 +65,9 @@ function testCoordinateTransform() {
     alphaBetaMagnitude, dqMagnitude, 0.0001);
 }
 
+// Ручное задание тока: регуляторы должны вывести ток к заданному вектору и не
+// навести при этом ток по поперечной оси. 250 шагов — это 25 мс, около пяти
+// электрических постоянных времени обмотки.
 function testManualCurrentStep() {
   let testParameters = new MotorParameters();
   let testSettings = new ControlSettings(testParameters);
@@ -52,6 +81,9 @@ function testManualCurrentStep() {
   diagnosticNear("Manual beta cross error", testMotor.state.currentBeta, 0.0, 0.02);
 }
 
+// Ручное задание напряжения проходит на машину без изменений: никаких
+// контуров тока в этом режиме нет. Единственное, что с ним делается, —
+// ограничение по длине; поэтому же здесь проверяется и оно.
 function testManualVoltageCommand() {
   let testParameters = new MotorParameters();
   let testSettings = new ControlSettings(testParameters);
@@ -71,6 +103,9 @@ function testManualVoltageCommand() {
     MANUAL_MAXIMUM_VOLTAGE, 0.0001);
 }
 
+// Упреждение по ЭДС вращения. Машину раскручиваем до 100 рад/с при нулевом
+// задании тока: без упреждения ЭДС наводила бы заметный ток, а с ним он
+// остаётся почти нулевым.
 function testManualBackEmfCompensation() {
   let testParameters = new MotorParameters();
   let testSettings = new ControlSettings(testParameters);
@@ -87,6 +122,8 @@ function testManualBackEmfCompensation() {
   diagnosticLessThan("Manual back-EMF rejection", currentMagnitude, 0.15);
 }
 
+// Векторное управление: заданный iq достигается, id держится нулевым — то
+// есть развязка осей работает и контуры тока друг другу не мешают.
 function testVectorCurrentStep() {
   let testParameters = new MotorParameters();
   let testSettings = new ControlSettings(testParameters);
@@ -101,6 +138,12 @@ function testVectorCurrentStep() {
   diagnosticNear("Vector iq regulation", testMotor.state.currentQ, 3.0, 0.08);
 }
 
+// Контур скорости, самый длинный тест: разгон до 1000 об/мин и затем наброс
+// нагрузки 10 Н·м. Проверяется четыре вещи: скорость приходит к заданию,
+// перерегулирование не больше 5 %, наброс нагрузки не проваливает скорость
+// глубже 200 об/мин и после него скорость возвращается к заданию —
+// установившейся ошибки по нагрузке нет, за это отвечает интегральная часть.
+// 10 000 шагов — это 1 с модельного времени.
 function testSpeedLoopStep() {
   let testParameters = new MotorParameters();
   let testSettings = new ControlSettings(testParameters);
@@ -126,6 +169,8 @@ function testSpeedLoopStep() {
     maximumVoltage = max(maximumVoltage, testController.voltageCommand.magnitude());
   }
   let finalRpm = rpmFromRadians(testMotor.state.mechanicalSpeed);
+  // Печатается не как проверка, а как справка: по этим числам видно, во что
+  // упирается разгон — в предел тока или в предел напряжения.
   console.log("INFO: speed peak at " + peakTime + " s; max iq* = "
     + maximumCurrentReference + " A; max |u| = " + maximumVoltage + " V");
   diagnosticNear("Speed loop steady state", finalRpm, 1000.0, 10.0);
@@ -145,6 +190,10 @@ function testSpeedLoopStep() {
   diagnosticNear("Speed load rejection", loadedFinalRpm, 1000.0, 10.0);
 }
 
+// Защита интегратора от насыщения, отдельно от модели: регулятору даётся
+// заведомо недостижимая ошибка, а его выход жёстко ограничивается. Без
+// возврата интегратор за секунду накопил бы величину порядка 10^5; проверка
+// требует, чтобы он остался небольшим.
 function testCurrentAntiWindup() {
   let testRegulator = new PIRegulator();
   let timeStep = 0.0001;
@@ -156,6 +205,9 @@ function testCurrentAntiWindup() {
   diagnosticLessThan("Current PI anti-windup", abs(testRegulator.integrator), 20.0);
 }
 
+// То же задание скорости, но отрицательное: и регулятор, и показания должны
+// работать в обе стороны. Знак проверяется в том же виде, в каком он
+// попадает на экран, — через formatSignedNumber.
 function testNegativeSpeedLoopStep() {
   let testParameters = new MotorParameters();
   let testSettings = new ControlSettings(testParameters);
@@ -176,6 +228,9 @@ function testNegativeSpeedLoopStep() {
   }
 }
 
+// Сброс параметров. Проверяется и то, что сбрасывается, и то, что
+// сохраняется: режим и тип ручного вектора должны уцелеть, иначе кнопка
+// «Сброс» выводила бы demo-страницу из её режима.
 function testGuiParameterReset() {
   let testParameters = new MotorParameters();
   let testSettings = new ControlSettings(testParameters);
@@ -281,6 +336,8 @@ function testDemoProfiles() {
     + names.join(", ") + ")");
 }
 
+// Прогон нескольких шагов — то же, что делает FixedStepSimulator, но без
+// привязки к кадрам: в тестах время идёт настолько быстро, насколько считается.
 function runDiagnosticSteps(testMotor, testController,
                         testSettings, stepCount) {
   for (let step = 0; step < stepCount; step++) {
@@ -339,6 +396,9 @@ function testThemePalettes() {
     + " colours (" + names.join(", ") + ")");
 }
 
+// Две проверки, на которых держатся все тесты: «примерно равно» и «не больше».
+// Обе печатают и значение — по журналу видно не только то, что проверка не
+// прошла, но и насколько.
 function diagnosticNear(name, actual, expected, tolerance) {
   if (abs(actual - expected) <= tolerance) {
     console.log("PASS: " + name + " (" + actual + ")");

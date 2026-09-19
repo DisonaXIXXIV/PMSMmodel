@@ -206,8 +206,12 @@ const THEME_CSS_VARIABLES = {
   "--diagnostics-fail": "diagnosticsFail",
 };
 
+// Текущая тема. Одна на всю программу: полотно одно, и рисовать его частями в
+// разных темах незачем.
 let activeThemeName = THEME_DARK;
 
+// Доступ к палитре. Функция, а не переменная: тему меняют на ходу, и код,
+// сохранивший ссылку на палитру, рисовал бы в прежней.
 function theme() {
   return THEME_PALETTES[activeThemeName];
 }
@@ -244,6 +248,8 @@ function themeColor(entry, alpha) {
   return color(entry[0], entry[1], entry[2], themeAlpha(entry, alpha));
 }
 
+// Цвет строкой для CSS. Нужен только для того, что рисует не p5, а браузер:
+// фон документа и карточка страницы самотестирования.
 function cssColor(entry) {
   let alpha = themeAlpha(entry, undefined);
   if (alpha >= 255) return "rgb(" + entry[0] + ", " + entry[1] + ", " + entry[2] + ")";
@@ -251,6 +257,9 @@ function cssColor(entry) {
     + (alpha / 255).toFixed(3) + ")";
 }
 
+// Установка темы. remember = false — для тех случаев, когда тема выбрана не
+// человеком, а системной настройкой: такой выбор запоминать нельзя, иначе
+// программа перестала бы следовать системе после первого же запуска.
 function setTheme(name, remember = true) {
   let resolved = name === THEME_LIGHT ? THEME_LIGHT : THEME_DARK;
   let changed = resolved !== activeThemeName;
@@ -302,6 +311,8 @@ function storeThemePreference(name) {
   }
 }
 
+// Передача цветов в документ: атрибут data-theme (по нему таблица стилей
+// меняет color-scheme) и CSS-переменные из THEME_CSS_VARIABLES.
 function applyThemeToDocument() {
   if (typeof document === "undefined" || !document.documentElement) return;
   let root = document.documentElement;

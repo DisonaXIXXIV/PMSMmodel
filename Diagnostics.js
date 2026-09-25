@@ -48,6 +48,7 @@ function runSimulationDiagnostics() {
   testVoltageDisplayScale();
   testReferenceFrameLock();
   testVersionStamp();
+  testVersionParsing();
 
   if (diagnosticFailures > 0) {
     console.log("PMSM diagnostics failed: " + diagnosticFailures);
@@ -438,6 +439,20 @@ function testDemoProfiles() {
   }
   console.log("PASS: " + names.length + " demo profiles are consistent ("
     + names.join(", ") + ")");
+}
+
+// Разбор version.js, скачанного с сервера (Updater.js). По ответу решается,
+// перезагружать ли страницу, поэтому чужой текст — страница ошибки или
+// обрезанный файл — должен давать «версии нет», а не мусорную версию, из-за
+// которой страница перезагружалась бы по кругу.
+function testVersionParsing() {
+  let sample = "// Версия программы\nconst PMSM_VERSION = \"v2026.09.25 08:47\";\n";
+  diagnosticTrue("A version file yields its stamp",
+    parseVersionStamp(sample) === "v2026.09.25 08:47");
+  diagnosticTrue("An error page yields no version",
+    parseVersionStamp("<html><body>404</body></html>") === null);
+  diagnosticTrue("A truncated file yields no version",
+    parseVersionStamp("const PMSM_VERSION = \"v2026.09") === null);
 }
 
 // Версию под заголовком пишет git-хук .githooks/pre-commit. Проверяем, что

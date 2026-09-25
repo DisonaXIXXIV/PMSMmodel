@@ -155,6 +155,10 @@ function buildInterface() {
     });
   controlPanel.build(document.body, machineStage.toolbarSlot);
   controlPanel.setLayout(activeLayoutMode);
+
+  // Новая версия на сервере: вернувшись на вкладку, страница обновляется сама,
+  // а открытой предлагает кнопку (см. Updater.js).
+  startVersionWatch((version, reload) => machineStage.showUpdate(version, reload));
 }
 
 // Кадр: шаг модели, отрисовка машины, обновление показаний в разметке.

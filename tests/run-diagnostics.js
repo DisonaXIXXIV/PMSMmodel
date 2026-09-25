@@ -49,7 +49,8 @@ Object.assign(globalThis, {
 // функции становятся глобальными, как в браузере.
 const root = path.resolve(__dirname, "..");
 for (const file of ["version.js", "Theme.js", "MathUtils.js", "MotorModel.js", "Controllers.js", "Presets.js",
-  "MotorView.js", "Panel.js", "Diagnostics.js"]) {
+  "MotorView.js", "Panel.js", "Diagnostics.js",
+  "Updater.js"]) {
   const source = fs.readFileSync(path.join(root, file), "utf8");
   vm.runInThisContext(source, { filename: file });
 }

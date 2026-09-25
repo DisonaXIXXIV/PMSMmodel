@@ -107,6 +107,26 @@ body {
   display: none;
 }
 
+/* Кнопка «обновить до …» рядом с версией: тот же мелкий кегль, но янтарный
+   акцент и подчёркивание, чтобы было видно, что это действие. Отступы
+   расширяют её до пальца, не раздвигая строку. */
+.stage__update {
+  margin: -8px 0;
+  padding: 8px 4px;
+  border: 0;
+  background: none;
+  color: var(--paused-mark);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.stage__update:disabled {
+  cursor: default;
+  text-decoration: none;
+}
+
 .stage__subtitle {
   margin: 4px 0 0;
   color: var(--motor-subtitle);

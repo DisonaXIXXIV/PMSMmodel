@@ -349,6 +349,24 @@ class MachineStage {
     this.buildLegend();
   }
 
+  // Новая версия на сервере (см. Updater.js): рядом с текущей появляется
+  // кнопка, которая на неё обновляет. Сама страница не перезагружается, пока
+  // на неё смотрят, — перезагрузка сбросила бы модель посреди показа.
+  showUpdate(version, reload) {
+    if (!this.updateButton) {
+      this.updateButton = element("button", "stage__update");
+      this.updateButton.type = "button";
+      this.updateButton.addEventListener("click", () => {
+        this.updateButton.disabled = true;
+        setText(this.updateButton, "обновляется…");
+        this.reloadToUpdate();
+      });
+      this.version.append(" ", this.updateButton);
+    }
+    this.reloadToUpdate = reload;
+    setText(this.updateButton, "обновить до " + version);
+  }
+
   // Примечание об обмотке: потокосцепление магнитов и как читать обозначения
   // сторон катушек.
   windingNote() {

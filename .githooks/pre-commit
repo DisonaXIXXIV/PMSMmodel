@@ -1,17 +1,23 @@
 #!/bin/sh
 # Записывает в version.js время коммита — страница показывает его под
-# заголовком как версию vYYYY.MM.DD HH:mm. Время берётся в UTC, чтобы версия
-# не зависела от часового пояса того, кто коммитит.
+# заголовком как версию vYYYY.MM.DD HH:mm. Время московское (UTC+3): оно
+# считается от UTC сдвигом на три часа, а не берётся из часового пояса
+# машины, поэтому версия не зависит от того, где коммитят.
 #
 # Хук включается один раз на клон: git config core.hooksPath .githooks
 # (npm install делает это сам, см. скрипт prepare в package.json).
 
 root=$(git rev-parse --show-toplevel) || exit 1
-stamp=$(date -u +"v%Y.%m.%d %H:%M")
+moscow=$(( $(date +%s) + 3 * 3600 ))
+# -d @секунды понимает GNU date (Linux, Git Bash в Windows), -r секунды — BSD
+# date (macOS).
+stamp=$(date -u -d "@$moscow" +"v%Y.%m.%d %H:%M" 2>/dev/null) \
+  || stamp=$(date -u -r "$moscow" +"v%Y.%m.%d %H:%M")
 
 cat > "$root/version.js" <<VERSION
-// Версия программы: время последнего коммита в UTC. Файл переписывает хук
-// .githooks/pre-commit при каждом коммите — руками его не правят.
+// Версия программы: время последнего коммита по Москве (UTC+3). Файл
+// переписывает хук .githooks/pre-commit при каждом коммите — руками его не
+// правят.
 const PMSM_VERSION = "$stamp";
 VERSION
 

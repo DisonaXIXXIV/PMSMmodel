@@ -45,6 +45,7 @@ function runSimulationDiagnostics() {
   testPanelControlDescriptions();
   testControlVisibilityRules();
   testManualVectorMapping();
+  testVoltageDisplayScale();
   testReferenceFrameLock();
   testVersionStamp();
 
@@ -773,6 +774,44 @@ function testManualVectorMapping() {
     received.beta, testParameters.maximumCurrent, 0.001);
   diagnosticNear("A locked frame rotates the reference off alpha", received.alpha, 0.0, 0.001);
   testView.viewRotation = 0.0;
+}
+
+// Масштаб векторов u и E. В ручном режиме напряжения вся окружность — это
+// ручной предел 15 В, и ЭДС должна рисоваться ровно в том же масштабе, что и
+// напряжение: иначе при равных u и E стрелки были бы разной длины. Отрисовку
+// перехватываем на drawPhysicalVector — сравниваются предел и длина, с
+// которыми векторы в неё попадают.
+function testVoltageDisplayScale() {
+  let testParameters = new MotorParameters();
+  let testSettings = new ControlSettings(testParameters);
+  let testView = new MotorView(testParameters, testSettings);
+  testView.updateGeometry({ x: 0.0, y: 0.0, w: 640.0, h: 720.0 });
+  let drawn = {};
+  testView.drawPhysicalVector = (alpha, beta, maximum, maximumLength, vectorColor, label) => {
+    drawn[label] = { maximum, maximumLength };
+  };
+  // В Node нет p5, а цвет векторов собирается её функцией color. Для этой
+  // проверки цвет не важен, поэтому на время теста её заменяет заглушка.
+  let stubbedColor = typeof color === "undefined";
+  if (stubbedColor) globalThis.color = () => null;
+  let state = new MotorState();
+
+  testSettings.mode = MODE_MANUAL;
+  testSettings.manualVectorType = MANUAL_VECTOR_VOLTAGE;
+  testView.drawElectricalVectors(state);
+  diagnosticNear("Manual voltage mode draws u on the manual scale",
+    drawn.u.maximum, MANUAL_MAXIMUM_VOLTAGE, 1e-12);
+  diagnosticNear("Manual voltage mode draws E on the manual scale",
+    drawn.E.maximum, MANUAL_MAXIMUM_VOLTAGE, 1e-12);
+  diagnosticNear("Manual voltage mode gives u and E the same length per volt",
+    drawn.E.maximumLength / drawn.E.maximum, drawn.u.maximumLength / drawn.u.maximum, 1e-12);
+
+  testSettings.mode = MODE_VECTOR;
+  testView.drawElectricalVectors(state);
+  diagnosticNear("Other modes draw E on the inverter scale",
+    drawn.E.maximum, testParameters.maximumVoltage, 1e-12);
+
+  if (stubbedColor) delete globalThis.color;
 }
 
 // Система наблюдения: фиксация осей d–q поворачивает картинку, а снятие

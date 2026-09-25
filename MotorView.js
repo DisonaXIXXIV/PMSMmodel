@@ -371,22 +371,37 @@ class MotorView {
     }
     this.drawPhysicalVector(state.currentAlpha, state.currentBeta, this.parameters.maximumCurrent,
       this.currentVectorMaximumLength(), themeColor(theme().vectorCurrent), "i");
+    let manualVoltage = this.isManualVoltageScale();
     if (this.settings.showVoltage) {
-      // Масштаб напряжения совпадает с масштабом задания: в ручном режиме
-      // напряжения предел 15 В, иначе — полное напряжение инвертора. Иначе
-      // заданный вектор и полученный рисовались бы в разных масштабах, и
-      // сравнивать их было бы нельзя.
-      let voltageScaleMaximum = this.settings.mode == MODE_MANUAL
-          && this.settings.manualVectorType == MANUAL_VECTOR_VOLTAGE
-        ? MANUAL_MAXIMUM_VOLTAGE
-        : this.parameters.maximumVoltage;
-      this.drawPhysicalVector(state.voltageAlpha, state.voltageBeta, voltageScaleMaximum,
-        this.statorInnerRadius * 0.91, themeColor(theme().vectorVoltage), "u");
+      this.drawPhysicalVector(state.voltageAlpha, state.voltageBeta,
+        this.voltageDisplayMaximum(), this.statorInnerRadius * 0.91,
+        themeColor(theme().vectorVoltage), "u");
     }
     if (this.settings.showEmf) {
-      this.drawPhysicalVector(state.emfAlpha, state.emfBeta, this.parameters.maximumVoltage,
-        this.statorInnerRadius * 0.86, themeColor(theme().vectorEmf), "E");
+      // В ручном режиме напряжения ЭДС рисуется ровно в масштабе u: тот же
+      // предел и та же длина, так что разница длин u и E — это и есть
+      // падение на обмотке. В остальных режимах её окружность чуть меньше,
+      // чтобы при u ≈ E наконечники и подписи не сливались.
+      this.drawPhysicalVector(state.emfAlpha, state.emfBeta, this.voltageDisplayMaximum(),
+        this.statorInnerRadius * (manualVoltage ? 0.91 : 0.86),
+        themeColor(theme().vectorEmf), "E");
     }
+  }
+
+  // Ручное задание напряжения: и задание, и полученное напряжение, и ЭДС
+  // рисуются в масштабе ручного предела (15 В на всю окружность), а не
+  // полного напряжения инвертора, — иначе вектор в несколько вольт был бы
+  // почти не виден.
+  isManualVoltageScale() {
+    return this.settings.mode == MODE_MANUAL
+      && this.settings.manualVectorType == MANUAL_VECTOR_VOLTAGE;
+  }
+
+  // Напряжение, которому соответствует полная длина векторов u и E.
+  voltageDisplayMaximum() {
+    return this.isManualVoltageScale()
+      ? MANUAL_MAXIMUM_VOLTAGE
+      : this.parameters.maximumVoltage;
   }
 
   // Вектор, заданный проекциями на α и β. Совсем короткие не рисуются: у

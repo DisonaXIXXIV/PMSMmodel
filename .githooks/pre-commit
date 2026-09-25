@@ -1,0 +1,18 @@
+#!/bin/sh
+# Записывает в version.js время коммита — страница показывает его под
+# заголовком как версию vYYYY.MM.DD HH:mm. Время берётся в UTC, чтобы версия
+# не зависела от часового пояса того, кто коммитит.
+#
+# Хук включается один раз на клон: git config core.hooksPath .githooks
+# (npm install делает это сам, см. скрипт prepare в package.json).
+
+root=$(git rev-parse --show-toplevel) || exit 1
+stamp=$(date -u +"v%Y.%m.%d %H:%M")
+
+cat > "$root/version.js" <<VERSION
+// Версия программы: время последнего коммита в UTC. Файл переписывает хук
+// .githooks/pre-commit при каждом коммите — руками его не правят.
+const PMSM_VERSION = "$stamp";
+VERSION
+
+git add "$root/version.js"

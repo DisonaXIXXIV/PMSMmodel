@@ -18,6 +18,7 @@
     }
   },
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
     "test": "node tests/run-diagnostics.js",
     "sketch:start": "electron .",
     "app:pack": "electron-builder"

@@ -96,6 +96,17 @@ body {
   line-height: 1.2;
 }
 
+.stage__version {
+  margin: 2px 0 0;
+  color: var(--motor-note);
+  font-size: var(--font-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.stage__version:empty {
+  display: none;
+}
+
 .stage__subtitle {
   margin: 4px 0 0;
   color: var(--motor-subtitle);

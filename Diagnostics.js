@@ -46,6 +46,7 @@ function runSimulationDiagnostics() {
   testControlVisibilityRules();
   testManualVectorMapping();
   testReferenceFrameLock();
+  testVersionStamp();
 
   if (diagnosticFailures > 0) {
     console.log("PMSM diagnostics failed: " + diagnosticFailures);
@@ -436,6 +437,15 @@ function testDemoProfiles() {
   }
   console.log("PASS: " + names.length + " demo profiles are consistent ("
     + names.join(", ") + ")");
+}
+
+// Версию под заголовком пишет git-хук .githooks/pre-commit. Проверяем, что
+// файл подключён и строка в нём того вида, который хук и должен оставить:
+// испорченный руками или сломанный хуком файл иначе заметили бы только глазами.
+function testVersionStamp() {
+  diagnosticTrue("The version stamp is loaded", typeof PMSM_VERSION === "string");
+  diagnosticTrue("The version stamp reads vYYYY.MM.DD HH:mm",
+    /^v\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}$/.test(String(PMSM_VERSION)));
 }
 
 // Прогон нескольких шагов — то же, что делает FixedStepSimulator, но без

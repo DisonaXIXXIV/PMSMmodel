@@ -332,9 +332,13 @@ class MachineStage {
     let caption = element("header", "stage__caption");
     this.title = element("h1", "stage__title",
       "Синхронная машина с постоянными магнитами");
+    // Версия — время последнего коммита из version.js (его пишет git-хук).
+    // Без этого файла страница просто обходится без строки версии.
+    this.version = element("p", "stage__version",
+      typeof PMSM_VERSION === "string" ? PMSM_VERSION : "");
     this.frameName = element("p", "stage__subtitle");
     this.note = element("p", "stage__note", this.windingNote());
-    caption.append(this.title, this.frameName, this.note);
+    caption.append(this.title, this.version, this.frameName, this.note);
     stage.insertBefore(caption, canvasHost);
 
     let footer = element("div", "stage__footer");

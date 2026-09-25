@@ -117,8 +117,8 @@ function panelSliderDescriptions(parameters) {
   ];
 }
 
-// Паспорт машины: сопротивление обмотки, её индуктивность и момент инерции.
-// Эти три ползунка пишут не в настройки, а прямо в MotorParameters — объект
+// Паспорт машины: сопротивление обмотки, её индуктивность, потокосцепление
+// магнитов и момент инерции. Эти четыре ползунка пишут не в настройки, а прямо в MotorParameters — объект
 // паспорта один на программу, и модель с регуляторами читают его поля на
 // каждом шаге, поэтому изменение действует сразу.
 //
@@ -139,6 +139,11 @@ function motorParameterSliderDescriptions() {
     { setting: "statorInductance", label: "Индуктивность обмотки", unit: " мГн",
       minimum: 1.0, maximum: 30.0, step: 0.5, decimals: 1, scale: 1000.0,
       target: "parameters" },
+    // Потокосцепление магнитов: моментная постоянная 1,5·p·ψf и противо-ЭДС
+    // ψf·ωэ. Нижний предел не нулевой — без магнитов машина не развивала бы
+    // момента при id = 0, и векторное управление просто стояло бы.
+    { setting: "magnetFlux", label: "Потокосцепление магнитов", unit: " Вб",
+      minimum: 0.2, maximum: 2.5, step: 0.05, decimals: 2, target: "parameters" },
     { setting: "inertia", label: "Момент инерции", unit: " кг·м²",
       minimum: 0.01, maximum: 1.0, step: 0.005, decimals: 3, target: "parameters" },
   ];
@@ -415,6 +420,9 @@ class MachineStage {
     setText(this.readoutValues.voltage.value,
       nf(sqrt(state.voltageAlpha * state.voltageAlpha
         + state.voltageBeta * state.voltageBeta), 1, 1) + " В");
+    // ψf меняется ползунком паспорта, поэтому примечание обновляется вместе
+    // с показаниями, а не пишется один раз при построении.
+    setText(this.note, this.windingNote());
     setHidden(this.pausedMark, !paused);
   }
 }
@@ -638,7 +646,8 @@ class ControlPanel {
     // свёрнута — к показу привода её органы отношения не имеют, менять их
     // нужно редко, а занимают они втрое больше места, чем выбор режима.
     // Внутри — сопротивление и индуктивность обмотки (вместе они задают
-    // электрическую постоянную времени) и момент инерции (механическую).
+    // электрическую постоянную времени), потокосцепление магнитов (моментную
+    // постоянную и противо-ЭДС) и момент инерции (механическую).
     this.motorCard = panelDisclosureCard("ПАРАМЕТРЫ ДВИГАТЕЛЯ");
     for (const description of motorParameterSliderDescriptions()) {
       this.motorCard.append(this.buildSlider(description));
@@ -648,7 +657,7 @@ class ControlPanel {
     // приходится менять следом, и без этой оговорки разъехавшийся переходный
     // процесс выглядел бы ошибкой модели.
     this.motorCard.append(element("p", "hint",
-      "Паспорт: 1,20 Ом, 6,0 мГн, 0,100 кг·м². Коэффициенты регуляторов"
+      "Паспорт: 1,20 Ом, 6,0 мГн, 1,25 Вб, 0,100 кг·м². Коэффициенты регуляторов"
       + " настроены под эти значения и при других требуют пересчёта."));
     this.controlGroup.append(this.motorCard);
   }

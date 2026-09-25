@@ -332,6 +332,23 @@ function testMotorParameterControls() {
     return inertiaMotor.state.mechanicalSpeed;
   });
   diagnosticTrue("The inertia slider reaches the mechanics", speeds[0] > 0.1);
+
+  // Потокосцепление: при заданном токе iq момент равен 1,5·p·ψf·iq, а при
+  // заданной скорости противо-ЭДС равна ψf·ωэ. Обе величины должны следовать
+  // за ползунком, а не за паспортным значением.
+  for (const flux of [0.5, 2.0]) {
+    let fluxParameters = new MotorParameters();
+    fluxParameters.magnetFlux = flux;
+    let fluxMotor = new PMSMModel(fluxParameters);
+    diagnosticNear("The magnet flux of " + flux + " Wb sets the torque constant",
+      fluxMotor.electromagneticTorque(0.0, 4.0),
+      1.5 * fluxParameters.polePairs * flux * 4.0, 1e-9);
+    fluxMotor.state.mechanicalSpeed = 10.0;
+    fluxMotor.updateDerivedValues(0.0, 0.0, 0.0);
+    let emf = Math.hypot(fluxMotor.state.emfAlpha, fluxMotor.state.emfBeta);
+    diagnosticNear("The magnet flux of " + flux + " Wb sets the back EMF",
+      emf, flux * fluxParameters.polePairs * 10.0, 1e-9);
+  }
   diagnosticNear("Twice the inertia halves the acceleration",
     speeds[1] / speeds[0], 0.51, 0.02);
 
@@ -340,11 +357,13 @@ function testMotorParameterControls() {
   let resetParameters = new MotorParameters();
   resetParameters.statorResistance = 4.4;
   resetParameters.statorInductance = 0.019;
+  resetParameters.magnetFlux = 0.7;
   resetParameters.inertia = 0.47;
   resetParameters.resetTunableParameters();
   diagnosticNear("Reset restores the resistance", resetParameters.statorResistance, 1.2, 1e-12);
   diagnosticNear("Reset restores the inductance",
     resetParameters.statorInductance, 0.006, 1e-12);
+  diagnosticNear("Reset restores the magnet flux", resetParameters.magnetFlux, 1.25, 1e-12);
   diagnosticNear("Reset restores the inertia", resetParameters.inertia, 0.1, 1e-12);
 }
 

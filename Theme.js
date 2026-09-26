@@ -48,8 +48,13 @@ const DARK_PALETTE = {
   guideAlphaBeta: [70, 204, 217, 90],
   componentAlphaBeta: [70, 204, 217, 135],
   guideDq: [220, 150, 235, 100],
-  componentD: [246, 157, 68, 190],
-  componentQ: [180, 116, 235, 190],
+  // Проекции тока на d и q — не в цвет своих осей, а зелёным и красным: так
+  // id и iq различаются с первого взгляда и не теряются на фоне осей. Тон
+  // взят ярче и чище фаз A и B статора, чтобы с обмоткой их не путать.
+  componentD: [135, 228, 72, 215],
+  componentQ: [255, 82, 82, 215],
+  // Обводка проекций: тон фона машины, чтобы стрелка отделялась от ротора.
+  componentHalo: [18, 22, 30, 200],
   vectorCurrent: [73, 220, 232],
   vectorCurrentReference: [73, 220, 232, 90],
   vectorVoltage: [247, 205, 74],
@@ -155,8 +160,9 @@ const LIGHT_PALETTE = {
   guideAlphaBeta: [10, 130, 150, 110],
   componentAlphaBeta: [10, 130, 150, 165],
   guideDq: [150, 74, 190, 120],
-  componentD: [196, 110, 20, 210],
-  componentQ: [124, 62, 182, 210],
+  componentD: [64, 150, 18, 225],
+  componentQ: [218, 30, 40, 225],
+  componentHalo: [255, 255, 255, 225],
   vectorCurrent: [10, 130, 150],
   vectorCurrentReference: [10, 130, 150, 110],
   vectorVoltage: [168, 120, 8],

@@ -441,7 +441,11 @@ class MotorView {
       angle += PI;
       clampedLength = -clampedLength;
     }
-    this.drawArrow(angle, clampedLength, componentColor, label, 1.25);
+    // Проекции лежат поверх ротора, а тот наполовину красный, наполовину
+    // синий: красная iq на полюсе N без обводки почти пропадала бы. Обводка
+    // цвета фона отделяет стрелку от любой подложки.
+    this.drawArrow(angle, clampedLength, componentColor, label, 1.25,
+      themeColor(theme().componentHalo));
   }
 
   // Штриховые линии достроения от концов проекций к концу самого вектора: та
@@ -484,11 +488,37 @@ class MotorView {
   // Стрелка из центра: линия, две линии наконечника и подпись чуть за концом.
   // weightFactor позволяет одному и тому же коду рисовать и жирные векторы, и
   // тонкие проекции.
-  drawArrow(angle, length, arrowColor, label, weightFactor) {
+  // haloColor необязателен: если задан, стрелка и подпись сначала рисуются
+  // этим цветом чуть толще — получается обводка, которая держит стрелку
+  // видимой на подложке её же цвета.
+  drawArrow(angle, length, arrowColor, label, weightFactor, haloColor) {
+    let weight = max(1.2, this.outerRadius * 0.008 * weightFactor);
+    let haloWeight = 3.0;
+    if (haloColor) {
+      stroke(haloColor);
+      strokeWeight(weight + haloWeight);
+      this.drawArrowLines(angle, length);
+    }
+    stroke(arrowColor);
+    strokeWeight(weight);
+    this.drawArrowLines(angle, length);
+    if (haloColor) {
+      stroke(haloColor);
+      strokeWeight(haloWeight);
+    } else {
+      noStroke();
+    }
+    fill(arrowColor);
+    textAlign(CENTER, CENTER);
+    textSize(max(9.0, this.outerRadius * 0.058));
+    text(label, this.pointX(angle, length + 11.0), this.pointY(angle, length + 11.0));
+    noStroke();
+  }
+
+  // Древко и наконечник стрелки текущими цветом и толщиной линии.
+  drawArrowLines(angle, length) {
     let endX = this.pointX(angle, length);
     let endY = this.pointY(angle, length);
-    stroke(arrowColor);
-    strokeWeight(max(1.2, this.outerRadius * 0.008 * weightFactor));
     line(this.centerX, this.centerY, endX, endY);
     let headLength = constrain(length * 0.16, 6.0, 13.0);
     line(endX, endY,
@@ -497,11 +527,6 @@ class MotorView {
     line(endX, endY,
       endX + headLength * cos(angle + PI + 0.45),
       endY - headLength * sin(angle + PI + 0.45));
-    noStroke();
-    fill(arrowColor);
-    textAlign(CENTER, CENTER);
-    textSize(max(9.0, this.outerRadius * 0.058));
-    text(label, this.pointX(angle, length + 11.0), this.pointY(angle, length + 11.0));
   }
 
   // Моменты показаны дугами вокруг статора: момент машины ближе, момент

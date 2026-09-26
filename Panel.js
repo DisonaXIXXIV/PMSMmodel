@@ -279,6 +279,10 @@ const TOOLBAR_ICONS = {
   // Шеврон свёртываемой карточки: вниз — свёрнута, вверх (повёрнут стилями) —
   // раскрыта.
   chevron: '<path d="M6 9.5l6 6 6-6"/>',
+  // Справка: вопросительный знак — кнопка в шапке, крест — закрыть окно.
+  help: '<path d="M9.2 9.2a2.9 2.9 0 1 1 3.9 2.7c-.7.3-1.1.9-1.1 1.6v.8"/>'
+    + '<circle cx="12" cy="17.6" r="1.1" fill="currentColor" stroke="none"/>',
+  close: '<path d="M6 6l12 12M18 6L6 18"/>',
   settings: '<path d="M3 7h18M3 12h18M3 17h18"/>'
     + '<circle cx="8" cy="7" r="2" fill="currentColor"/>'
     + '<circle cx="15" cy="12" r="2" fill="currentColor"/>'
@@ -325,11 +329,21 @@ class MachineStage {
   }
 
   // Разметка строится один раз. Полотно уже лежит в документе (#app), надписи
-  // встают до него, легенда с показаниями — после.
-  build(stage, canvasHost) {
+  // встают до него, легенда с показаниями — после. openHelp — что делать по
+  // кнопке «?» в шапке (см. Help.js).
+  build(stage, canvasHost, openHelp) {
     this.stage = stage;
 
     let caption = element("header", "stage__caption");
+    // Кнопка справки стоит в шапке, а не в панели: шапка видна в обеих
+    // компоновках, а панель на телефоне спрятана в шторку.
+    let help = element("button", "stage__help");
+    help.type = "button";
+    help.setAttribute("aria-label", "Справка: что умеет программа");
+    help.title = "Справка";
+    help.innerHTML = iconMarkup("help");
+    help.addEventListener("click", openHelp);
+    caption.append(help);
     this.title = element("h1", "stage__title",
       "Синхронная машина с постоянными магнитами");
     // Версия — время последнего коммита из version.js (его пишет git-хук).

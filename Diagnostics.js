@@ -46,6 +46,7 @@ function runSimulationDiagnostics() {
   testControlVisibilityRules();
   testManualVectorMapping();
   testVoltageDisplayScale();
+  testHelpContents();
   testReferenceFrameLock();
   testVersionStamp();
   testVersionParsing();
@@ -895,6 +896,31 @@ function testVoltageDisplayScale() {
     drawn.E.maximum, testParameters.maximumVoltage, 1e-12);
 
   if (stubbedColor) delete globalThis.color;
+}
+
+// Справка (Help.js) пишется руками, и отстать от программы ей проще всего:
+// переименовали режим или добавили параметр — а справка о нём молчит.
+// Проверяется то, что расходится незаметно: каждый режим назван так же, как
+// на переключателе, упомянуты клавиши и все параметры двигателя.
+function testHelpContents() {
+  let text = helpPlainText();
+  let modes = HELP_SECTIONS[0].items.map((item) => item[0]);
+  for (const description of MODE_DESCRIPTIONS) {
+    diagnosticTrue("The help describes the " + description.label + " mode",
+      modes.includes(description.label));
+  }
+  for (const key of ["Пробел", "R", "T"]) {
+    diagnosticTrue("The help mentions the " + key + " key",
+      HELP_SECTIONS.some((section) => section.items.some(
+        (item) => Array.isArray(item) && item[0] === key)));
+  }
+  // Параметры двигателя названы в справке не подписями ползунков, а своими
+  // словами, поэтому сверяется ключевое слово каждой подписи.
+  for (const description of motorParameterSliderDescriptions()) {
+    let keyword = description.label.split(" ")[0].toLowerCase();
+    diagnosticTrue("The help mentions the motor parameter " + description.setting,
+      text.toLowerCase().includes(keyword.slice(0, 7)));
+  }
 }
 
 // Система наблюдения: фиксация осей d–q поворачивает картинку, а снятие

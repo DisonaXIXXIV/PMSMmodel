@@ -29,6 +29,7 @@ let driveController;
 let simulator;
 let motorView;
 let machineStage;
+let helpDialog;
 let controlPanel;
 let canvasElement;
 
@@ -140,7 +141,9 @@ function buildInterface() {
   const stage = document.getElementById("stage");
   const canvasHost = document.getElementById("app");
   machineStage = new MachineStage(motorParameters, controlSettings);
-  machineStage.build(stage, canvasHost);
+  helpDialog = new HelpDialog();
+  helpDialog.build(document.body);
+  machineStage.build(stage, canvasHost, () => helpDialog.open());
 
   controlPanel = new ControlPanel(motorParameters, controlSettings, driveController,
     activeProfile, {

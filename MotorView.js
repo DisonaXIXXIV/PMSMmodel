@@ -51,6 +51,48 @@ function statorSlotWinding(slot) {
   };
 }
 
+// Угол паза в неподвижной системе α–β. Обмотка повёрнута так, чтобы
+// магнитная ось фазы A совпала с осью α — как и принято в преобразовании
+// Кларк, по которому модель считает iα и iβ. Ток «к нам» в проводнике даёт
+// в центре поле, повёрнутое от проводника на −90°, поэтому для оси A на 0°
+// середина зоны A+ должна стоять на 90°, а A− — на 270°. Середина зоны A+ —
+// паз 1, отсюда сдвиг 90° − 20° = 70°. Тогда оси фаз B и C встают на 120° и
+// 240°, как и должны; testStatorWinding проверяет это по самим пазам.
+//
+// Раньше сдвига не было, зона A+ начиналась с α, и ось фазы A смотрела на
+// −70°: картинка обмотки не сходилась с вектором тока, который она создаёт.
+const STATOR_WINDING_OFFSET = Math.PI * 7.0 / 18.0;
+
+function statorSlotAngle(slot) {
+  return STATOR_WINDING_OFFSET + 2.0 * Math.PI * slot / STATOR_SLOT_COUNT;
+}
+
+// Мгновенные токи фаз из iα, iβ — обратное преобразование Кларк в той же
+// амплитудной форме, в какой модель считает момент (с множителем 1,5):
+// ia совпадает с iα, а ib и ic — проекции того же вектора на оси 120° и 240°.
+function phaseCurrentsFromAlphaBeta(currentAlpha, currentBeta) {
+  let half = 0.5 * currentAlpha;
+  let root = 0.5 * Math.sqrt(3.0) * currentBeta;
+  return [currentAlpha, -half + root, -half - root];
+}
+
+// Что показывает значок в пазу: куда течёт ток сейчас и насколько он велик.
+// direction — +1 (к нам, точка), −1 (от нас, крест) или 0, когда тока в фазе
+// практически нет. Направление — это знак тока фазы, умноженный на
+// положительное направление стороны катушки: при отрицательном токе точка и
+// крест меняются местами. strength — от 0 до 1; насыщается на половине
+// предельного тока, чтобы и небольшие токи ручного режима были заметны.
+function statorSlotCurrentMark(slot, phaseCurrents, maximumCurrent) {
+  let winding = statorSlotWinding(slot);
+  let current = phaseCurrents[winding.phase];
+  let threshold = maximumCurrent * 0.01;
+  if (Math.abs(current) < threshold) return { direction: 0, strength: 0.0 };
+  return {
+    direction: winding.conductorDirection * Math.sign(current),
+    strength: Math.min(Math.abs(current) / (0.5 * maximumCurrent), 1.0),
+  };
+}
+
 // Вид машины. Состояние здесь только то, что нельзя вывести из модели:
 // геометрия текущего кадра, поворот системы наблюдения и признак того, что
 // сейчас тянут ручной вектор.
@@ -182,9 +224,11 @@ class MotorView {
     let speedFade = this.settings.lockDqFrame
       ? constrain(map(abs(rpmFromRadians(state.mechanicalSpeed)), 500.0, 3500.0, 1.0, 0.20), 0.20, 1.0)
       : 1.0;
-    let statorAngle = this.screenAngle(0.0);
+    // Токи фаз в этот момент: по ним значки в пазах показывают, куда и
+    // насколько сильно течёт ток, а не только положительное направление.
+    let phaseCurrents = phaseCurrentsFromAlphaBeta(state.currentAlpha, state.currentBeta);
     for (let slot = 0; slot < STATOR_SLOT_COUNT; slot++) {
-      let angle = statorAngle + TWO_PI * slot / STATOR_SLOT_COUNT;
+      let angle = this.screenAngle(statorSlotAngle(slot));
       let inner = this.statorInnerRadius + this.outerRadius * 0.025;
       let outer = this.outerRadius * 0.95;
       strokeTheme(theme().statorSlot, 210.0 * speedFade);
@@ -193,7 +237,8 @@ class MotorView {
 
       let winding = statorSlotWinding(slot);
       let phaseColor = themeColor(theme()[STATOR_PHASE_COLOR_KEYS[winding.phase]]);
-      this.drawCoilSide(angle, phaseColor, winding.conductorDirection, speedFade);
+      let mark = statorSlotCurrentMark(slot, phaseCurrents, this.parameters.maximumCurrent);
+      this.drawCoilSide(angle, phaseColor, mark, speedFade);
 
       // Подпись зоны ставится на её среднем пазе — одна на три паза.
       if (slot % STATOR_SLOTS_PER_BELT === 1) {
@@ -214,9 +259,10 @@ class MotorView {
     circle(this.centerX, this.centerY, this.statorInnerRadius * 2.0);
   }
 
-  // Сторона катушки в пазу: кружок, а в нём точка (ток из плоскости чертежа)
-  // или крест (ток в плоскость). Цвет — цвет фазы.
-  drawCoilSide(angle, phaseColor, conductorDirection, fade) {
+  // Сторона катушки в пазу: кружок цвета фазы, а в нём — мгновенный ток:
+  // точка (из плоскости чертежа, к нам) или крест (в плоскость). Чем больше
+  // ток фазы, тем ярче и крупнее значок; без тока кружок пустой.
+  drawCoilSide(angle, phaseColor, mark, fade) {
     let markerX = this.pointX(angle, this.outerRadius * 0.82);
     let markerY = this.pointY(angle, this.outerRadius * 0.82);
     let markerSize = max(7.0, this.outerRadius * 0.052);
@@ -226,13 +272,16 @@ class MotorView {
     fillTheme(theme().coilMarkerFill, 230.0 * fade);
     circle(markerX, markerY, markerSize);
 
-    if (conductorDirection > 0) {
+    if (mark.direction === 0) return;
+    let markAlpha = lerp(70.0, 245.0, mark.strength) * fade;
+    let markScale = lerp(0.6, 1.0, mark.strength);
+    if (mark.direction > 0) {
       noStroke();
-      fill(red(phaseColor), green(phaseColor), blue(phaseColor), 245.0 * fade);
-      circle(markerX, markerY, markerSize * 0.33);
+      fill(red(phaseColor), green(phaseColor), blue(phaseColor), markAlpha);
+      circle(markerX, markerY, markerSize * 0.33 * markScale);
     } else {
-      let crossRadius = markerSize * 0.23;
-      stroke(red(phaseColor), green(phaseColor), blue(phaseColor), 245.0 * fade);
+      let crossRadius = markerSize * 0.23 * markScale;
+      stroke(red(phaseColor), green(phaseColor), blue(phaseColor), markAlpha);
       strokeWeight(max(1.0, this.outerRadius * 0.009));
       line(markerX - crossRadius, markerY - crossRadius,
         markerX + crossRadius, markerY + crossRadius);

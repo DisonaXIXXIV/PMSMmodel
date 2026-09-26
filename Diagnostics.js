@@ -567,6 +567,74 @@ function testStatorWinding() {
       console.log("FAIL: slot " + slot + " is " + actual + ", expected " + expectedSlots[slot]);
     }
   }
+  // Геометрия обмотки считается по правилу правой руки прямо по пазам, а не
+  // той же формулой, что в MotorView: проводник с током «к нам» (+1) даёт в
+  // центре поле, повёрнутое от него на −90°. Сумма по пазам фазы — её
+  // магнитная ось; у фазы A она обязана совпасть с α, у B и C — стоять на
+  // 120° и 240°, иначе картинка обмотки не сходится с вектором тока.
+  function slotField(slot, weight) {
+    let angle = statorSlotAngle(slot) - Math.PI / 2.0;
+    return [weight * Math.cos(angle), weight * Math.sin(angle)];
+  }
+  function angleDegrees(x, y) {
+    return (Math.atan2(y, x) * 180.0 / Math.PI + 360.0) % 360.0;
+  }
+  function angleError(actual, expected) {
+    let difference = Math.abs(actual - expected) % 360.0;
+    return Math.min(difference, 360.0 - difference);
+  }
+  for (let phase = 0; phase < 3; phase++) {
+    let sum = [0.0, 0.0];
+    for (let slot = 0; slot < STATOR_SLOT_COUNT; slot++) {
+      let winding = statorSlotWinding(slot);
+      if (winding.phase !== phase) continue;
+      let field = slotField(slot, winding.conductorDirection);
+      sum[0] += field[0];
+      sum[1] += field[1];
+    }
+    let axis = angleDegrees(sum[0], sum[1]);
+    if (angleError(axis, phase * 120.0) > 0.001) {
+      failures++;
+      console.log("FAIL: the axis of phase " + STATOR_PHASE_NAMES[phase] + " is at "
+        + axis.toFixed(2) + "°, expected " + phase * 120 + "°");
+    }
+  }
+
+  // Значки в пазах показывают мгновенный ток. Поле, которое дают эти токи,
+  // обязано смотреть туда же, куда вектор тока: так проверяются сразу
+  // геометрия, обратное преобразование Кларк и знаки значков.
+  for (const currentAngle of [0.0, 35.0, 90.0, 200.0, 300.0]) {
+    let radiansAngle = currentAngle * Math.PI / 180.0;
+    let currents = phaseCurrentsFromAlphaBeta(10.0 * Math.cos(radiansAngle),
+      10.0 * Math.sin(radiansAngle));
+    let sum = [0.0, 0.0];
+    for (let slot = 0; slot < STATOR_SLOT_COUNT; slot++) {
+      let mark = statorSlotCurrentMark(slot, currents, 25.0);
+      let magnitude = Math.abs(currents[statorSlotWinding(slot).phase]);
+      let field = slotField(slot, mark.direction * magnitude);
+      sum[0] += field[0];
+      sum[1] += field[1];
+    }
+    let fieldAngle = angleDegrees(sum[0], sum[1]);
+    if (angleError(fieldAngle, currentAngle) > 0.001) {
+      failures++;
+      console.log("FAIL: a current at " + currentAngle + "° gives slot marks whose field"
+        + " points at " + fieldAngle.toFixed(2) + "°");
+    }
+  }
+
+  // Отрицательный ток фазы меняет точку и крест местами, а без тока значка
+  // нет вовсе.
+  let slotAPlus = 1;
+  let positive = statorSlotCurrentMark(slotAPlus, [5.0, 0.0, 0.0], 25.0);
+  let negative = statorSlotCurrentMark(slotAPlus, [-5.0, 0.0, 0.0], 25.0);
+  let none = statorSlotCurrentMark(slotAPlus, [0.0, 0.0, 0.0], 25.0);
+  if (positive.direction !== 1 || negative.direction !== -1 || none.direction !== 0
+      || !(positive.strength > 0.0) || none.strength !== 0.0) {
+    failures++;
+    console.log("FAIL: the A+ slot marks do not follow the sign of the phase current");
+  }
+
   // Цвет каждой зоны тоже берётся по индексу фазы, и промах там дал бы
   // неопределённый ключ палитры вместо заливки.
   for (const key of STATOR_PHASE_COLOR_KEYS) {

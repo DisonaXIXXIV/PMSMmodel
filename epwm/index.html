@@ -111,6 +111,23 @@
   .bulk input { width: 100%; font-family: ui-monospace, Menlo, Consolas, monospace; }
   .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
   #plot-wrap { position: relative; }
+  .height-grip {
+    height: 12px;
+    margin-top: 2px;
+    cursor: ns-resize;
+    touch-action: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .height-grip::before {
+    content: "";
+    width: 48px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border);
+  }
+  .height-grip:hover::before, .height-grip.active::before { background: var(--accent); }
   canvas { display: block; width: 100%; touch-action: none; cursor: crosshair; }
   details summary { cursor: pointer; color: var(--muted); }
   details p { margin: 6px 0; }
@@ -192,18 +209,21 @@
       записывается во все восемь таймеров.</div>
   </section>
 
-  <section>
-    <div class="row" style="margin-bottom:8px">
+  <section id="plot-section">
+    <div id="plot-toolbar" class="row" style="margin-bottom:8px">
       <label><input id="overlay" type="checkbox"> Наложить на один график</label>
       <label><input id="common-scale" type="checkbox" checked> Общая шкала по вертикали</label>
       <label>TBCLK, МГц <input id="tbclk" type="number" min="0" step="any" placeholder="—" title="Если задать, ось времени подпишется и в микросекундах"></label>
       <button id="reset-view" title="Окно в два периода, левый край — ноль опорного таймера">Показать два периода</button>
+      <button id="fit-height" title="Графики во всю высоту окна; ширина не меняется (Esc — вернуть)">Во всю высоту</button>
     </div>
     <div id="plot-wrap"><canvas id="plot"></canvas></div>
+    <div id="height-grip" class="height-grip" title="Потяните, чтобы изменить высоту графиков; двойной щелчок — обычная высота"></div>
     <div class="hint">«Показать два периода» ставит у левого края ноль опорного таймера.
       Колесо мыши — масштаб по времени, перетаскивание — сдвиг.
       Наведите курсор, чтобы увидеть значения всех счётчиков в этот такт.
-      Порядок графиков меняется стрелками ▲▼ или перетаскиванием строки за ⠿ в таблице.</div>
+      Порядок графиков меняется стрелками ▲▼ или перетаскиванием строки за ⠿ в таблице.
+      Высоту графиков можно менять, потянув за полоску под ними, или кнопкой «Во всю высоту».</div>
   </section>
 
   <details>
@@ -751,13 +771,50 @@ function resetView() {
   view = { t0, t1: t0 + 2 * T };
 }
 
+// Высота графиков: null — обычная (полосы постоянной высоты), "fit" — во
+// всю высоту окна, число — сколько пикселей натянули полоской. Это удобство
+// смотрящего, а не часть снимка, поэтому лежит отдельно от наборов.
+const PLOT_HEIGHT_KEY = "epwm-plot-height";
+const MIN_PLOT_HEIGHT = 160;
+let plotHeight = loadPlotHeight();
+
+function loadPlotHeight() {
+  try {
+    const v = localStorage.getItem(PLOT_HEIGHT_KEY);
+    if (v === "fit") return "fit";
+    if (v && +v >= MIN_PLOT_HEIGHT) return +v;
+  } catch (e) { /* нет хранилища — обычная высота */ }
+  return null;
+}
+
+function setPlotHeight(h) {
+  plotHeight = h;
+  try {
+    if (h === null) localStorage.removeItem(PLOT_HEIGHT_KEY);
+    else localStorage.setItem(PLOT_HEIGHT_KEY, String(h));
+  } catch (e) { /* не страшно */ }
+  const fit = document.getElementById("fit-height");
+  fit.textContent = h === "fit" ? "Обычная высота" : "Во всю высоту";
+  draw();
+}
+
+// Высота окна за вычетом панели над графиком и полоски под ним — чтобы
+// при прокрутке к панели график целиком помещался на экране.
+function fitHeight() {
+  const toolbar = document.getElementById("plot-toolbar").offsetHeight;
+  return Math.max(MIN_PLOT_HEIGHT, window.innerHeight - toolbar - 8 - 14 - 24);
+}
+
 function plotLayout() {
   const width = canvas.clientWidth;
   const vis = visibleTimers();
   const lanes = state.overlay ? 1 : Math.max(1, vis.length);
-  const laneHeight = state.overlay ? 320 : (width < 600 ? 70 : 84);
   const margin = { left: 64, right: 12, top: 10, bottom: 34 };
   const gap = state.overlay ? 0 : 10;
+  const target = plotHeight === "fit" ? fitHeight() : plotHeight;
+  const laneHeight = target
+    ? Math.max(30, (target - margin.top - margin.bottom - (lanes - 1) * gap) / lanes)
+    : state.overlay ? 320 : (width < 600 ? 70 : 84);
   const height = margin.top + margin.bottom + lanes * laneHeight + (lanes - 1) * gap;
   return { width, height, margin, laneHeight, gap, vis };
 }
@@ -1062,6 +1119,36 @@ document.addEventListener("keydown", (ev) => {
   if (ev.target.closest("input, select, textarea")) return;
   if (/^[1-9]$/.test(ev.key)) switchSet(+ev.key - 1);
 });
+document.getElementById("fit-height").addEventListener("click", () => {
+  if (plotHeight === "fit") {
+    setPlotHeight(null);
+  } else {
+    setPlotHeight("fit");
+    document.getElementById("plot-toolbar").scrollIntoView({ block: "start", behavior: "smooth" });
+  }
+});
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && plotHeight === "fit") setPlotHeight(null);
+});
+
+// Полоска под графиком: тянется вниз-вверх, двойной щелчок — обычная высота.
+const heightGrip = document.getElementById("height-grip");
+let gripDrag = null;
+heightGrip.addEventListener("pointerdown", (ev) => {
+  heightGrip.setPointerCapture(ev.pointerId);
+  heightGrip.classList.add("active");
+  gripDrag = { y: ev.clientY, h: canvas.clientHeight };
+});
+heightGrip.addEventListener("pointermove", (ev) => {
+  if (!gripDrag) return;
+  setPlotHeight(Math.max(MIN_PLOT_HEIGHT, Math.round(gripDrag.h + ev.clientY - gripDrag.y)));
+});
+const endGripDrag = () => { gripDrag = null; heightGrip.classList.remove("active"); };
+heightGrip.addEventListener("pointerup", endGripDrag);
+heightGrip.addEventListener("pointercancel", endGripDrag);
+heightGrip.addEventListener("dblclick", () => setPlotHeight(null));
+setPlotHeight(plotHeight);
+
 window.addEventListener("resize", draw);
 window.addEventListener("hashchange", () => {
   const s = decodeHash(location.hash);

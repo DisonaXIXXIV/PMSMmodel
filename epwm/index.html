@@ -181,6 +181,7 @@
             <th>TBPRD</th>
             <th>TBCTR</th>
             <th>CTRDIR</th>
+            <th title="Уровень сравнения A — на графике штриховая линия">CMPA</th>
             <th title="Длина периода счётчика в тактах TBCLK">Период, тактов</th>
             <th title="Опорный таймер: сдвиг остальных считается от него">Опорный</th>
             <th title="На сколько тактов этот таймер опережает опорный (минус — отстаёт)">Сдвиг, тактов</th>
@@ -199,6 +200,7 @@
       <label for="bulk-ctr">TBCTR</label><input id="bulk-ctr" placeholder="например: 0 250 500 750 1000 750 500 250">
       <label for="bulk-dir">CTRDIR</label><input id="bulk-dir" placeholder="1 1 1 1 0 0 0 0">
       <label for="bulk-prd">TBPRD</label><input id="bulk-prd" placeholder="1000 (одно число — всем)">
+      <label for="bulk-cmpa">CMPA</label><input id="bulk-cmpa" placeholder="500">
     </div>
     <div class="row" style="margin-top:8px">
       <button id="bulk-apply" class="primary">Применить</button>
@@ -213,6 +215,7 @@
     <div id="plot-toolbar" class="row" style="margin-bottom:8px">
       <label><input id="overlay" type="checkbox"> Наложить на один график</label>
       <label><input id="common-scale" type="checkbox" checked> Общая шкала по вертикали</label>
+      <label><input id="show-cmpa" type="checkbox" checked> Показывать CMPA</label>
       <label>TBCLK, МГц <input id="tbclk" type="number" min="0" step="any" placeholder="—" title="Если задать, ось времени подпишется и в микросекундах"></label>
       <button id="reset-view" title="Окно в один период, левый край — ноль опорного таймера">Показать один период</button>
       <button id="fit-height" title="Графики во всю высоту окна; ширина не меняется (Esc — вернуть)">Во всю высоту</button>
@@ -258,13 +261,14 @@ function defaultState() {
   const ctr = [0, 250, 500, 750, 1000, 750, 500, 250];
   const dir = [1, 1, 1, 1, 0, 0, 0, 0];
   return {
-    timers: ctr.map((c, i) => ({ on: true, mode: "updown", prd: 1000, ctr: c, dir: dir[i] })),
+    timers: ctr.map((c, i) => ({ on: true, mode: "updown", prd: 1000, ctr: c, dir: dir[i], cmpa: 500 })),
     reference: 0,
     // Порядок графиков сверху вниз — номера таймеров (с нуля). Таблица идёт
     // в том же порядке, чтобы строка стояла рядом со своим графиком.
     order: [0, 1, 2, 3, 4, 5, 6, 7],
     overlay: false,
     commonScale: true,
+    showCmpa: true,
     tbclk: "",
   };
 }
@@ -341,6 +345,10 @@ function sanitize(s) {
       mode: MODE_NAMES[t.mode] ? t.mode : d.mode,
       prd: Number.isFinite(+t.prd) && +t.prd >= 1 ? Math.round(+t.prd) : d.prd,
       ctr: Number.isFinite(+t.ctr) ? Math.round(+t.ctr) : d.ctr,
+      // В снимках, сохранённых до появления CMPA, его нет — берём середину.
+      cmpa: t.cmpa !== undefined && t.cmpa !== "" && Number.isFinite(+t.cmpa)
+        ? Math.round(+t.cmpa)
+        : Math.round((Number.isFinite(+t.prd) && +t.prd >= 1 ? Math.round(+t.prd) : d.prd) / 2),
       dir: +t.dir ? 1 : 0,
     };
   });
@@ -351,6 +359,7 @@ function sanitize(s) {
     order: sanitizeOrder(s.order),
     overlay: !!s.overlay,
     commonScale: s.commonScale !== false,
+    showCmpa: s.showCmpa !== false,
     tbclk: s.tbclk ? String(s.tbclk) : "",
   };
 }
@@ -372,6 +381,7 @@ function encodeHash(s) {
     "m=" + s.timers.map((t) => modeLetter[t.mode]).join(""),
     "p=" + s.timers.map((t) => t.prd).join(","),
     "c=" + s.timers.map((t) => t.ctr).join(","),
+    "a=" + s.timers.map((t) => t.cmpa).join(","),
     "d=" + s.timers.map((t) => t.dir).join(""),
     "e=" + s.timers.map((t) => (t.on ? 1 : 0)).join(""),
     "r=" + s.reference,
@@ -379,6 +389,7 @@ function encodeHash(s) {
   if (s.order.some((v, k) => v !== k)) parts.push("n=" + s.order.map((i) => i + 1).join(""));
   if (s.overlay) parts.push("o=1");
   if (!s.commonScale) parts.push("s=0");
+  if (!s.showCmpa) parts.push("h=0");
   if (s.tbclk) parts.push("f=" + s.tbclk);
   return "#" + parts.join("&");
 }
@@ -390,11 +401,12 @@ function decodeHash(hash) {
   const m = (params.get("m") || "").split("");
   const p = (params.get("p") || "").split(",");
   const c = (params.get("c") || "").split(",");
+  const a = (params.get("a") || "").split(",");
   const d = (params.get("d") || "").split("");
   const e = (params.get("e") || "").split("");
   const timers = [];
   for (let i = 0; i < TIMER_COUNT; i++) {
-    timers.push({ mode: letterMode[m[i]], prd: p[i], ctr: c[i], dir: d[i], on: e[i] !== "0" });
+    timers.push({ mode: letterMode[m[i]], prd: p[i], ctr: c[i], cmpa: a[i], dir: d[i], on: e[i] !== "0" });
   }
   return sanitize({
     timers,
@@ -402,6 +414,7 @@ function decodeHash(hash) {
     order: params.has("n") ? params.get("n").split("").map((ch) => +ch - 1) : null,
     overlay: params.get("o") === "1",
     commonScale: params.get("s") !== "0",
+    showCmpa: params.get("h") !== "0",
     tbclk: params.get("f") || "",
   });
 }
@@ -527,6 +540,7 @@ function buildTable() {
         <option value="1">1 — вверх</option>
         <option value="0">0 — вниз</option>
       </select></td>
+      <td><input type="number" data-f="cmpa" min="0" max="65535"></td>
       <td class="num" data-o="period"></td>
       <td><input type="radio" name="reference" data-f="reference" aria-label="Опорный ePWM${i + 1}"></td>
       <td class="num" data-o="shift"></td>
@@ -551,7 +565,7 @@ function onRowInput(i, el) {
   else if (f === "mode") t.mode = el.value;
   else if (f === "dir") t.dir = +el.value;
   else if (f === "reference") state.reference = i;
-  else if (f === "prd" || f === "ctr") {
+  else if (f === "prd" || f === "ctr" || f === "cmpa") {
     // Пока поле пустое или вводится, старое значение держим, а не рисуем мусор.
     const v = parseNumber(el.value);
     if (v === null) return;
@@ -639,11 +653,13 @@ function syncTable() {
     tr.querySelector('[data-f="mode"]').value = t.mode;
     setIfIdle(tr.querySelector('[data-f="prd"]'), t.prd);
     setIfIdle(tr.querySelector('[data-f="ctr"]'), t.ctr);
+    setIfIdle(tr.querySelector('[data-f="cmpa"]'), t.cmpa);
     tr.querySelector('[data-f="dir"]').value = String(t.dir);
     tr.querySelector('[data-f="reference"]').checked = state.reference === i;
   });
   document.getElementById("overlay").checked = state.overlay;
   document.getElementById("common-scale").checked = state.commonScale;
+  document.getElementById("show-cmpa").checked = state.showCmpa;
   document.getElementById("tbclk").value = state.tbclk;
 }
 
@@ -679,6 +695,8 @@ function updateDerived() {
     }
 
     const name = "ePWM" + (i + 1);
+    if (t.cmpa > t.prd) warnings.push(`${name}: CMPA = ${t.cmpa} больше TBPRD = ${t.prd} — счётчик его не достигнет.`);
+    if (t.cmpa < 0) warnings.push(`${name}: CMPA отрицательный.`);
     if (t.ctr > t.prd) warnings.push(`${name}: TBCTR = ${t.ctr} больше TBPRD = ${t.prd} — взято TBPRD.`);
     if (t.ctr < 0) warnings.push(`${name}: TBCTR отрицательный — взят 0.`);
     if (t.mode === "up" && t.dir === 0) warnings.push(`${name}: счёт вверх, а CTRDIR = 0 — направление не учтено.`);
@@ -712,7 +730,7 @@ function parseList(text) {
 }
 
 function applyBulk() {
-  const fields = [["bulk-ctr", "ctr", "TBCTR"], ["bulk-dir", "dir", "CTRDIR"], ["bulk-prd", "prd", "TBPRD"]];
+  const fields = [["bulk-ctr", "ctr", "TBCTR"], ["bulk-dir", "dir", "CTRDIR"], ["bulk-prd", "prd", "TBPRD"], ["bulk-cmpa", "cmpa", "CMPA"]];
   const errors = [];
   const parsed = fields.map(([id, key, label]) => {
     const r = parseList(document.getElementById(id).value);
@@ -729,7 +747,7 @@ function applyBulk() {
       const t = state.timers[i];
       if (p.key === "dir") t.dir = v ? 1 : 0;
       else if (p.key === "prd") t.prd = Math.max(1, v);
-      else t.ctr = v;
+      else t[p.key] = v;
     });
   });
   update({ resetView: true });
@@ -739,6 +757,7 @@ function fillBulk() {
   document.getElementById("bulk-ctr").value = state.timers.map((t) => t.ctr).join(" ");
   document.getElementById("bulk-dir").value = state.timers.map((t) => t.dir).join(" ");
   document.getElementById("bulk-prd").value = state.timers.map((t) => t.prd).join(" ");
+  document.getElementById("bulk-cmpa").value = state.timers.map((t) => t.cmpa).join(" ");
 }
 
 // ---------- График ----------
@@ -919,6 +938,7 @@ function draw() {
     ctx.rect(x0, lane.top - 2, x1 - x0, L.laneHeight + 4);
     ctx.clip();
     lane.items.forEach(({ t, i }) => drawCounter(t, css(`--t${i + 1}`), tx, ty));
+    if (state.showCmpa) lane.items.forEach(({ t, i }) => drawCmpa(t, i, tx, ty, x0, x1));
     lane.items.forEach(({ t, i }) => {
       // Точка снимка: где был счётчик в момент t = 0.
       ctx.fillStyle = css(`--t${i + 1}`);
@@ -974,6 +994,37 @@ function drawCounter(t, color, tx, ty) {
     ctx.lineTo(tx(start + t.prd), ty(v1));
   }
   ctx.stroke();
+}
+
+// CMPA — штриховая линия цвета таймера поверх его счётчика. Подпись
+// значения справа ставим только на отдельной полосе: в наложении восемь
+// подписей налезли бы друг на друга.
+function drawCmpa(t, i, tx, ty, x0, x1) {
+  const color = css(`--t${i + 1}`);
+  const y = Math.round(ty(t.cmpa)) + 0.5;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.2;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  ctx.moveTo(x0, y);
+  ctx.lineTo(x1, y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  if (!state.overlay) {
+    const label = `CMPA ${t.cmpa}`;
+    ctx.font = "11px system-ui, sans-serif";
+    const w = ctx.measureText(label).width + 6;
+    ctx.fillStyle = css("--panel");
+    ctx.globalAlpha = 0.85;
+    ctx.fillRect(x1 - w - 2, y - 14, w, 13);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.textAlign = "right";
+    ctx.textBaseline = "bottom";
+    ctx.fillText(label, x1 - 5, y - 2);
+  }
+  ctx.restore();
 }
 
 function drawHover(L, tx, x0, x1, plotBottom) {
@@ -1100,6 +1151,7 @@ document.getElementById("prd-all").addEventListener("change", (ev) => {
 });
 document.getElementById("overlay").addEventListener("change", (ev) => { state.overlay = ev.target.checked; update(); });
 document.getElementById("common-scale").addEventListener("change", (ev) => { state.commonScale = ev.target.checked; update(); });
+document.getElementById("show-cmpa").addEventListener("change", (ev) => { state.showCmpa = ev.target.checked; update(); });
 document.getElementById("tbclk").addEventListener("input", (ev) => { state.tbclk = ev.target.value; update({ table: false }); });
 document.getElementById("reset-view").addEventListener("click", () => { resetView(); draw(); });
 document.getElementById("order-shift").addEventListener("click", sortByShift);

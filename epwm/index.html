@@ -132,8 +132,9 @@
       <button id="set-delete">Удалить</button>
     </div>
     <div class="hint">Каждый набор хранит свои значения, тип счёта и порядок графиков; правки
-      сразу сохраняются в текущий набор. Переключаться можно и клавишами 1…9 — масштаб
-      графика при этом не меняется, так что удобно сравнивать. Наборы хранятся в этом
+      сразу сохраняются в текущий набор. Переключаться можно и клавишами 1…9: масштаб
+      графика при этом не меняется, а ноль опорного таймера остаётся на том же месте,
+      так что видно только то, чем наборы различаются. Наборы хранятся в этом
       браузере; чтобы передать набор, скопируйте адрес страницы.</div>
   </section>
 
@@ -196,10 +197,11 @@
       <label><input id="overlay" type="checkbox"> Наложить на один график</label>
       <label><input id="common-scale" type="checkbox" checked> Общая шкала по вертикали</label>
       <label>TBCLK, МГц <input id="tbclk" type="number" min="0" step="any" placeholder="—" title="Если задать, ось времени подпишется и в микросекундах"></label>
-      <button id="reset-view">Показать два периода</button>
+      <button id="reset-view" title="Окно в два периода, левый край — ноль опорного таймера">Показать два периода</button>
     </div>
     <div id="plot-wrap"><canvas id="plot"></canvas></div>
-    <div class="hint">Колесо мыши — масштаб по времени, перетаскивание — сдвиг.
+    <div class="hint">«Показать два периода» ставит у левого края ноль опорного таймера.
+      Колесо мыши — масштаб по времени, перетаскивание — сдвиг.
       Наведите курсор, чтобы увидеть значения всех счётчиков в этот такт.
       Порядок графиков меняется стрелками ▲▼ или перетаскиванием строки за ⠿ в таблице.</div>
   </section>
@@ -448,10 +450,13 @@ function renderSets() {
   document.getElementById("set-delete").disabled = sets.length < 2;
 }
 
-// Окно по времени не трогаем: при сравнении наборов картинка должна
-// меняться только там, где отличаются сами таймеры.
+// Масштаб не трогаем, а окно сдвигаем так, чтобы ноль опорного остался на
+// том же месте экрана: при сравнении наборов картинка меняется только там,
+// где отличаются сами таймеры, даже если снимки сделаны в разные моменты.
 function switchSet(k) {
   if (k < 0 || k >= sets.length) return;
+  const shift = referenceZeroTick(sets[k].state) - referenceZeroTick(state);
+  view = { t0: view.t0 + shift, t1: view.t1 + shift };
   activeSet = k;
   state = sets[k].state;
   update();
@@ -729,11 +734,21 @@ function visibleTimers() {
   return state.order.map((i) => ({ t: state.timers[i], i })).filter(({ t }) => t.on && validTimer(t));
 }
 
+// Последний до снимка (или в сам снимок) такт, где счётчик опорного равен
+// нулю. От него ведётся окно, чтобы в разных наборах опорная несущая
+// начиналась в одной точке и различались только остальные.
+function referenceZeroTick(s) {
+  const ref = s.timers[s.reference];
+  const zeroPosition = ref.mode === "down" ? ref.prd : 0;
+  return -mod(cyclePosition(ref) - zeroPosition, cycleLength(ref));
+}
+
 function resetView() {
   const vis = visibleTimers();
   const T = Math.max(1, ...vis.map(({ t }) => cycleLength(t)));
-  // Немного истории до снимка и два периода самого длинного таймера после.
-  view = { t0: -0.25 * T, t1: 2 * T };
+  // Два периода самого длинного таймера от нуля опорного.
+  const t0 = referenceZeroTick(state);
+  view = { t0, t1: t0 + 2 * T };
 }
 
 function plotLayout() {

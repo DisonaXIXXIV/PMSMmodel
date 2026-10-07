@@ -84,6 +84,13 @@
   th, td { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
   th { color: var(--muted); font-weight: 500; font-size: 12px; }
   td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  td.order { white-space: nowrap; }
+  .order button { padding: 0 6px; line-height: 20px; }
+  .order button:disabled { opacity: 0.3; cursor: default; }
+  .grip { cursor: grab; color: var(--muted); padding: 0 4px; user-select: none; }
+  tr.drop-before td { box-shadow: inset 0 2px 0 var(--accent); }
+  tr.drop-after td { box-shadow: inset 0 -2px 0 var(--accent); }
+  tr.dragging { opacity: 0.4; }
   .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; }
   tr.off td:not(:first-child) { opacity: 0.45; }
   .warn { color: var(--warn); }
@@ -124,11 +131,14 @@
         </select>
       </label>
       <label>TBPRD для всех <input id="prd-all" type="number" min="1" max="65535" placeholder="—"></label>
+      <button id="order-shift" title="Опорный сверху, остальные по возрастанию сдвига от него">Упорядочить по сдвигу</button>
+      <button id="order-reset">Порядок 1…8</button>
     </div>
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
+            <th title="Порядок графиков: стрелки или перетаскивание за ⠿">Порядок</th>
             <th>ePWM</th>
             <th>Показ</th>
             <th>Тип счёта</th>
@@ -172,7 +182,8 @@
     </div>
     <div id="plot-wrap"><canvas id="plot"></canvas></div>
     <div class="hint">Колесо мыши — масштаб по времени, перетаскивание — сдвиг.
-      Наведите курсор, чтобы увидеть значения всех счётчиков в этот такт.</div>
+      Наведите курсор, чтобы увидеть значения всех счётчиков в этот такт.
+      Порядок графиков меняется стрелками ▲▼ или перетаскиванием строки за ⠿ в таблице.</div>
   </section>
 
   <details>
@@ -207,6 +218,9 @@ function defaultState() {
   return {
     timers: ctr.map((c, i) => ({ on: true, mode: "updown", prd: 1000, ctr: c, dir: dir[i] })),
     reference: 0,
+    // Порядок графиков сверху вниз — номера таймеров (с нуля). Таблица идёт
+    // в том же порядке, чтобы строка стояла рядом со своим графиком.
+    order: [0, 1, 2, 3, 4, 5, 6, 7],
     overlay: false,
     commonScale: true,
     tbclk: "",
@@ -290,10 +304,20 @@ function sanitize(s) {
   return {
     timers,
     reference,
+    order: sanitizeOrder(s.order),
     overlay: !!s.overlay,
     commonScale: s.commonScale !== false,
     tbclk: s.tbclk ? String(s.tbclk) : "",
   };
+}
+
+// Порядок принимается, только если это перестановка 0…7, иначе — 1…8 по номерам.
+function sanitizeOrder(order) {
+  const identity = [...Array(TIMER_COUNT).keys()];
+  if (!Array.isArray(order) || order.length !== TIMER_COUNT) return identity;
+  const o = order.map(Number);
+  const seen = new Set(o);
+  return seen.size === TIMER_COUNT && o.every((i) => Number.isInteger(i) && i >= 0 && i < TIMER_COUNT) ? o : identity;
 }
 
 // Компактная запись в адресе, чтобы ссылкой можно было поделиться снимком:
@@ -308,6 +332,7 @@ function encodeHash(s) {
     "e=" + s.timers.map((t) => (t.on ? 1 : 0)).join(""),
     "r=" + s.reference,
   ];
+  if (s.order.some((v, k) => v !== k)) parts.push("n=" + s.order.map((i) => i + 1).join(""));
   if (s.overlay) parts.push("o=1");
   if (!s.commonScale) parts.push("s=0");
   if (s.tbclk) parts.push("f=" + s.tbclk);
@@ -330,6 +355,7 @@ function decodeHash(hash) {
   return sanitize({
     timers,
     reference: parseInt(params.get("r"), 10),
+    order: params.has("n") ? params.get("n").split("").map((ch) => +ch - 1) : null,
     overlay: params.get("o") === "1",
     commonScale: params.get("s") !== "0",
     tbclk: params.get("f") || "",
@@ -360,6 +386,7 @@ function buildTable() {
   for (let i = 0; i < TIMER_COUNT; i++) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
+      <td class="order"><span class="grip" draggable="true" title="Перетащить">⠿</span><button data-move="-1" title="Выше">▲</button><button data-move="1" title="Ниже">▼</button></td>
       <td><span class="swatch" style="background:var(--t${i + 1})"></span> ${i + 1}</td>
       <td><input type="checkbox" data-f="on" aria-label="Показывать ePWM${i + 1}"></td>
       <td><select data-f="mode">
@@ -379,6 +406,11 @@ function buildTable() {
       <td class="num" data-o="deg"></td>`;
     tr.addEventListener("input", (ev) => onRowInput(i, ev.target));
     tr.addEventListener("change", (ev) => onRowInput(i, ev.target));
+    tr.addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-move]");
+      if (b) moveTimer(i, +b.dataset.move);
+    });
+    addRowDrag(tr, i);
     tbody.appendChild(tr);
     rows.push(tr);
   }
@@ -402,7 +434,78 @@ function onRowInput(i, el) {
   update({ table: false });
 }
 
+function moveTimer(i, delta) {
+  const k = state.order.indexOf(i);
+  const j = k + delta;
+  if (j < 0 || j >= TIMER_COUNT) return;
+  [state.order[k], state.order[j]] = [state.order[j], state.order[k]];
+  update();
+}
+
+// Перетаскивание строки за значок ⠿: строка встаёт перед той, над верхней
+// половиной которой её отпустили, или после неё.
+let draggedTimer = null;
+
+function addRowDrag(tr, i) {
+  const grip = tr.querySelector(".grip");
+  grip.addEventListener("dragstart", (ev) => {
+    draggedTimer = i;
+    ev.dataTransfer.effectAllowed = "move";
+    ev.dataTransfer.setData("text/plain", String(i));
+    ev.dataTransfer.setDragImage(tr, 10, 10);
+    tr.classList.add("dragging");
+  });
+  grip.addEventListener("dragend", () => {
+    draggedTimer = null;
+    rows.forEach((r) => r.classList.remove("dragging", "drop-before", "drop-after"));
+  });
+  tr.addEventListener("dragover", (ev) => {
+    if (draggedTimer === null) return;
+    ev.preventDefault();
+    const before = dropBefore(tr, ev);
+    tr.classList.toggle("drop-before", before);
+    tr.classList.toggle("drop-after", !before);
+  });
+  tr.addEventListener("dragleave", () => tr.classList.remove("drop-before", "drop-after"));
+  tr.addEventListener("drop", (ev) => {
+    if (draggedTimer === null) return;
+    ev.preventDefault();
+    const before = dropBefore(tr, ev);
+    const order = state.order.filter((x) => x !== draggedTimer);
+    const k = order.indexOf(i);
+    if (k >= 0) order.splice(before ? k : k + 1, 0, draggedTimer);
+    else order.splice(state.order.indexOf(i), 0, draggedTimer);
+    state.order = order;
+    update();
+  });
+}
+
+function dropBefore(tr, ev) {
+  const r = tr.getBoundingClientRect();
+  return ev.clientY < r.top + r.height / 2;
+}
+
+function sortByShift() {
+  const ref = state.reference;
+  // Сначала опорный, затем таймеры с тем же периодом по возрастанию сдвига
+  // от него (в пределах периода, 0…T), в конце — с другим периодом.
+  const key = (i) => {
+    if (i === ref) return -1;
+    const t = state.timers[i];
+    const T = cycleLength(t);
+    if (T !== cycleLength(state.timers[ref])) return Infinity;
+    return mod(cyclePosition(t) - cyclePosition(state.timers[ref]), T) / T;
+  };
+  state.order = [...state.order].sort((a, b) => key(a) - key(b) || a - b);
+  update();
+}
+
 function syncTable() {
+  state.order.forEach((i, k) => {
+    tbody.appendChild(rows[i]);
+    rows[i].querySelector('[data-move="-1"]').disabled = k === 0;
+    rows[i].querySelector('[data-move="1"]').disabled = k === TIMER_COUNT - 1;
+  });
   rows.forEach((tr, i) => {
     const t = state.timers[i];
     tr.querySelector('[data-f="on"]').checked = t.on;
@@ -521,7 +624,7 @@ function css(name) {
 }
 
 function visibleTimers() {
-  return state.timers.map((t, i) => ({ t, i })).filter(({ t }) => t.on && validTimer(t));
+  return state.order.map((i) => ({ t: state.timers[i], i })).filter(({ t }) => t.on && validTimer(t));
 }
 
 function resetView() {
@@ -823,6 +926,11 @@ document.getElementById("overlay").addEventListener("change", (ev) => { state.ov
 document.getElementById("common-scale").addEventListener("change", (ev) => { state.commonScale = ev.target.checked; update(); });
 document.getElementById("tbclk").addEventListener("input", (ev) => { state.tbclk = ev.target.value; update({ table: false }); });
 document.getElementById("reset-view").addEventListener("click", () => { resetView(); draw(); });
+document.getElementById("order-shift").addEventListener("click", sortByShift);
+document.getElementById("order-reset").addEventListener("click", () => {
+  state.order = [...Array(TIMER_COUNT).keys()];
+  update();
+});
 document.getElementById("bulk-apply").addEventListener("click", applyBulk);
 document.getElementById("bulk-fill").addEventListener("click", fillBulk);
 document.querySelectorAll(".bulk input").forEach((el) => {

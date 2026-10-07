@@ -32,6 +32,12 @@ Canvas занимает всё окно браузера и автоматиче
 | `open-loop/` | разомкнутое управление | <https://disonaxixxiv.github.io/PMSMmodel/open-loop/> |
 | `vector/` | векторное управление | <https://disonaxixxiv.github.io/PMSMmodel/vector/> |
 
+Отдельно от модели в папке `epwm/` лежит самостоятельная страница
+<https://disonaxixxiv.github.io/PMSMmodel/epwm/>: по снимку TBCTR,
+TBSTS.CTRDIR и TBPRD восьми модулей ePWM от TI она рисует их счётчики и
+считает сдвиг между ними. Со скриптами модели она не связана — всё в одном
+`index.html`.
+
 Локально те же страницы открываются по адресам вида
 <http://localhost:8000/vector/>.
 

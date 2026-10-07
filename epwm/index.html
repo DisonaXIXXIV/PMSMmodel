@@ -1,0 +1,839 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Сдвиг таймеров ePWM</title>
+<!--
+  Отдельная от модели PMSM страница: по снимку TBCTR, TBSTS.CTRDIR и TBPRD
+  восьми модулей ePWM рисует их счётчики, как они идут друг относительно друга.
+  Всё в одном файле и без внешних библиотек, чтобы страница не зависела ни от
+  CDN, ни от скриптов модели.
+-->
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --text: #1d2330;
+    --muted: #667085;
+    --border: #d9dee7;
+    --grid: #e7eaf0;
+    --axis: #9aa3b2;
+    --accent: #2f6fde;
+    --on-accent: #ffffff;
+    --warn: #b54708;
+    --warn-bg: #fff4e5;
+    --snapshot: #d92d20;
+    --t1: #2f6fde; --t2: #d9480f; --t3: #2b8a3e; --t4: #ae3ec9;
+    --t5: #0c8599; --t6: #c2255c; --t7: #7a5c00; --t8: #495057;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12151b; --panel: #1b1f27; --text: #e6e9ef; --muted: #9aa3b2;
+      --border: #2e3440; --grid: #262b35; --axis: #5c6575; --accent: #6ea2ff; --on-accent: #12151b;
+      --warn: #ffb35c; --warn-bg: #3a2a14; --snapshot: #ff6b5e;
+      --t1: #6ea2ff; --t2: #ff8f4d; --t3: #5fd07a; --t4: #d58cf0;
+      --t5: #3fc5d9; --t6: #ff6fa3; --t7: #e0c04a; --t8: #c3c9d3;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12151b; --panel: #1b1f27; --text: #e6e9ef; --muted: #9aa3b2;
+    --border: #2e3440; --grid: #262b35; --axis: #5c6575; --accent: #6ea2ff; --on-accent: #12151b;
+    --warn: #ffb35c; --warn-bg: #3a2a14; --snapshot: #ff6b5e;
+    --t1: #6ea2ff; --t2: #ff8f4d; --t3: #5fd07a; --t4: #d58cf0;
+    --t5: #3fc5d9; --t6: #ff6fa3; --t7: #e0c04a; --t8: #c3c9d3;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 1200px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 16px; }
+  section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  h2 { font-size: 15px; margin: 0 0 8px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+  label { display: inline-flex; gap: 6px; align-items: center; }
+  input, select, button, textarea {
+    font: inherit;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 6px;
+  }
+  input[type="number"] { width: 90px; }
+  input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
+  button { cursor: pointer; padding: 5px 10px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; min-width: 760px; }
+  th, td { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; }
+  tr.off td:not(:first-child) { opacity: 0.45; }
+  .warn { color: var(--warn); }
+  .warnings:empty { display: none; }
+  .warnings {
+    background: var(--warn-bg);
+    color: var(--warn);
+    border-radius: 6px;
+    padding: 6px 10px;
+    margin-top: 8px;
+  }
+  .warnings div + div { margin-top: 2px; }
+  .bulk { display: grid; grid-template-columns: auto 1fr; gap: 6px 8px; align-items: center; }
+  .bulk input { width: 100%; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  #plot-wrap { position: relative; }
+  canvas { display: block; width: 100%; touch-action: none; cursor: crosshair; }
+  details summary { cursor: pointer; color: var(--muted); }
+  details p { margin: 6px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Сдвиг таймеров ePWM</h1>
+  <p class="lead">Введите снимок TBCTR, TBSTS.CTRDIR и TBPRD восьми модулей,
+    сделанный в один и тот же момент, — страница покажет, как их счётчики идут
+    друг относительно друга. Время считается в тактах TBCLK; момент снимка — t = 0.</p>
+
+  <section>
+    <h2>Таймеры</h2>
+    <div class="row" style="margin-bottom:8px">
+      <label>Тип счёта для всех
+        <select id="mode-all">
+          <option value="">—</option>
+          <option value="up">вверх (up)</option>
+          <option value="down">вниз (down)</option>
+          <option value="updown">вверх-вниз (up-down)</option>
+        </select>
+      </label>
+      <label>TBPRD для всех <input id="prd-all" type="number" min="1" max="65535" placeholder="—"></label>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ePWM</th>
+            <th>Показ</th>
+            <th>Тип счёта</th>
+            <th>TBPRD</th>
+            <th>TBCTR</th>
+            <th>CTRDIR</th>
+            <th title="Длина периода счётчика в тактах TBCLK">Период, тактов</th>
+            <th title="Опорный таймер: сдвиг остальных считается от него">Опорный</th>
+            <th title="На сколько тактов этот таймер опережает опорный (минус — отстаёт)">Сдвиг, тактов</th>
+            <th>Сдвиг, °</th>
+          </tr>
+        </thead>
+        <tbody id="timers"></tbody>
+      </table>
+    </div>
+    <div id="warnings" class="warnings"></div>
+  </section>
+
+  <section>
+    <h2>Вставить из отладчика</h2>
+    <div class="bulk">
+      <label for="bulk-ctr">TBCTR</label><input id="bulk-ctr" placeholder="например: 0 250 500 750 1000 750 500 250">
+      <label for="bulk-dir">CTRDIR</label><input id="bulk-dir" placeholder="1 1 1 1 0 0 0 0">
+      <label for="bulk-prd">TBPRD</label><input id="bulk-prd" placeholder="1000 (одно число — всем)">
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="bulk-apply" class="primary">Применить</button>
+      <button id="bulk-fill">Взять текущие</button>
+    </div>
+    <div class="hint">До восьми чисел через пробел, запятую, точку с запятой или с новой строки;
+      можно в шестнадцатеричном виде (0x3E8). Пустая строка не меняет поле. Одно число
+      записывается во все восемь таймеров.</div>
+  </section>
+
+  <section>
+    <div class="row" style="margin-bottom:8px">
+      <label><input id="overlay" type="checkbox"> Наложить на один график</label>
+      <label><input id="common-scale" type="checkbox" checked> Общая шкала по вертикали</label>
+      <label>TBCLK, МГц <input id="tbclk" type="number" min="0" step="any" placeholder="—" title="Если задать, ось времени подпишется и в микросекундах"></label>
+      <button id="reset-view">Показать два периода</button>
+    </div>
+    <div id="plot-wrap"><canvas id="plot"></canvas></div>
+    <div class="hint">Колесо мыши — масштаб по времени, перетаскивание — сдвиг.
+      Наведите курсор, чтобы увидеть значения всех счётчиков в этот такт.</div>
+  </section>
+
+  <details>
+    <summary>Как считается</summary>
+    <p><b>Вверх:</b> TBCTR идёт 0 → TBPRD и сбрасывается в 0, период TBPRD + 1 тактов.
+      <b>Вниз:</b> TBPRD → 0 и перезагружается TBPRD, период TBPRD + 1.
+      <b>Вверх-вниз:</b> 0 → TBPRD → 0, период 2·TBPRD; здесь направление из
+      TBSTS.CTRDIR (1 — вверх, 0 — вниз) различает два момента с одинаковым TBCTR.</p>
+    <p>Из TBCTR и направления находится место таймера внутри его периода, отсчитанное
+      от начала периода: 0 для счёта вверх и вверх-вниз, TBPRD для счёта вниз.
+      Сдвиг — разность этих мест у таймера и опорного, приведённая к ±½ периода:
+      плюс значит, что таймер опережает опорный. Сдвиг считается только у таймеров
+      с тем же периодом, что у опорного.</p>
+    <p>Предполагается, что все таймеры тактируются одним TBCLK (одинаковые
+      CLKDIV и HSPCLKDIV) и что значения прочитаны в один такт — например, при
+      остановке по точке останова с замороженными таймерами.</p>
+  </details>
+</main>
+
+<script>
+"use strict";
+
+const TIMER_COUNT = 8;
+const MODE_NAMES = { up: "вверх", down: "вниз", updown: "вверх-вниз" };
+const STORAGE_KEY = "epwm-phase-state";
+
+// Пример по умолчанию: восемь таймеров вверх-вниз, разнесённых на 45°, —
+// сразу видно, что страница умеет показывать сдвиг.
+function defaultState() {
+  const ctr = [0, 250, 500, 750, 1000, 750, 500, 250];
+  const dir = [1, 1, 1, 1, 0, 0, 0, 0];
+  return {
+    timers: ctr.map((c, i) => ({ on: true, mode: "updown", prd: 1000, ctr: c, dir: dir[i] })),
+    reference: 0,
+    overlay: false,
+    commonScale: true,
+    tbclk: "",
+  };
+}
+
+let state = loadState();
+// Видимое окно по времени, в тактах. Задаётся по периодам при загрузке и
+// кнопкой, дальше меняется колесом и перетаскиванием.
+let view = { t0: 0, t1: 1 };
+let hoverTick = null;
+
+// ---------- Расчёт ----------
+
+function cycleLength(t) {
+  return t.mode === "updown" ? 2 * t.prd : t.prd + 1;
+}
+
+// Место таймера внутри периода в момент снимка (0 … период − 1).
+function cyclePosition(t) {
+  const prd = t.prd;
+  const ctr = Math.min(Math.max(t.ctr, 0), prd);
+  if (t.mode === "up") return ctr;
+  if (t.mode === "down") return prd - ctr;
+  // Вверх-вниз: на спаде место отсчитывается от вершины. В нижней точке на
+  // спаде 2·TBPRD совпадает с началом следующего периода.
+  return t.dir ? ctr : (2 * prd - ctr) % (2 * prd);
+}
+
+function mod(a, n) {
+  return ((a % n) + n) % n;
+}
+
+// Значение счётчика в такт tick (0 — момент снимка).
+function counterAt(t, tick) {
+  const T = cycleLength(t);
+  const p = mod(cyclePosition(t) + tick, T);
+  if (t.mode === "up") return p;
+  if (t.mode === "down") return t.prd - p;
+  return p <= t.prd ? p : T - p;
+}
+
+function directionAt(t, tick) {
+  if (t.mode === "up") return 1;
+  if (t.mode === "down") return 0;
+  const p = mod(cyclePosition(t) + tick, cycleLength(t));
+  return p < t.prd ? 1 : 0;
+}
+
+// Сдвиг относительно опорного в тактах, приведённый к (−T/2, T/2]; null,
+// если периоды разные и сдвиг не определён.
+function shiftFromReference(t) {
+  const ref = state.timers[state.reference];
+  const T = cycleLength(t);
+  if (T !== cycleLength(ref)) return null;
+  let d = mod(cyclePosition(t) - cyclePosition(ref), T);
+  if (d > T / 2) d -= T;
+  return d;
+}
+
+function validTimer(t) {
+  return Number.isFinite(t.prd) && t.prd >= 1 && Number.isFinite(t.ctr);
+}
+
+// ---------- Состояние: адрес страницы и localStorage ----------
+
+function sanitize(s) {
+  const base = defaultState();
+  if (!s || !Array.isArray(s.timers)) return base;
+  const timers = base.timers.map((d, i) => {
+    const t = s.timers[i] || {};
+    return {
+      on: t.on !== false,
+      mode: MODE_NAMES[t.mode] ? t.mode : d.mode,
+      prd: Number.isFinite(+t.prd) && +t.prd >= 1 ? Math.round(+t.prd) : d.prd,
+      ctr: Number.isFinite(+t.ctr) ? Math.round(+t.ctr) : d.ctr,
+      dir: +t.dir ? 1 : 0,
+    };
+  });
+  const reference = Number.isInteger(s.reference) && s.reference >= 0 && s.reference < TIMER_COUNT ? s.reference : 0;
+  return {
+    timers,
+    reference,
+    overlay: !!s.overlay,
+    commonScale: s.commonScale !== false,
+    tbclk: s.tbclk ? String(s.tbclk) : "",
+  };
+}
+
+// Компактная запись в адресе, чтобы ссылкой можно было поделиться снимком:
+// #m=uuuddddd&p=…&c=…&d=…&r=0
+function encodeHash(s) {
+  const modeLetter = { up: "u", down: "d", updown: "x" };
+  const parts = [
+    "m=" + s.timers.map((t) => modeLetter[t.mode]).join(""),
+    "p=" + s.timers.map((t) => t.prd).join(","),
+    "c=" + s.timers.map((t) => t.ctr).join(","),
+    "d=" + s.timers.map((t) => t.dir).join(""),
+    "e=" + s.timers.map((t) => (t.on ? 1 : 0)).join(""),
+    "r=" + s.reference,
+  ];
+  if (s.overlay) parts.push("o=1");
+  if (!s.commonScale) parts.push("s=0");
+  if (s.tbclk) parts.push("f=" + s.tbclk);
+  return "#" + parts.join("&");
+}
+
+function decodeHash(hash) {
+  const params = new URLSearchParams(hash.replace(/^#/, ""));
+  if (!params.has("c")) return null;
+  const letterMode = { u: "up", d: "down", x: "updown" };
+  const m = (params.get("m") || "").split("");
+  const p = (params.get("p") || "").split(",");
+  const c = (params.get("c") || "").split(",");
+  const d = (params.get("d") || "").split("");
+  const e = (params.get("e") || "").split("");
+  const timers = [];
+  for (let i = 0; i < TIMER_COUNT; i++) {
+    timers.push({ mode: letterMode[m[i]], prd: p[i], ctr: c[i], dir: d[i], on: e[i] !== "0" });
+  }
+  return sanitize({
+    timers,
+    reference: parseInt(params.get("r"), 10),
+    overlay: params.get("o") === "1",
+    commonScale: params.get("s") !== "0",
+    tbclk: params.get("f") || "",
+  });
+}
+
+function loadState() {
+  const fromHash = decodeHash(location.hash);
+  if (fromHash) return fromHash;
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) return sanitize(JSON.parse(saved));
+  } catch (e) { /* хранилище недоступно — берём пример */ }
+  return defaultState();
+}
+
+function saveState() {
+  history.replaceState(null, "", encodeHash(state));
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* не страшно */ }
+}
+
+// ---------- Таблица ----------
+
+const tbody = document.getElementById("timers");
+const rows = [];
+
+function buildTable() {
+  for (let i = 0; i < TIMER_COUNT; i++) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><span class="swatch" style="background:var(--t${i + 1})"></span> ${i + 1}</td>
+      <td><input type="checkbox" data-f="on" aria-label="Показывать ePWM${i + 1}"></td>
+      <td><select data-f="mode">
+        <option value="up">вверх</option>
+        <option value="down">вниз</option>
+        <option value="updown">вверх-вниз</option>
+      </select></td>
+      <td><input type="number" data-f="prd" min="1" max="65535"></td>
+      <td><input type="number" data-f="ctr" min="0" max="65535"></td>
+      <td><select data-f="dir">
+        <option value="1">1 — вверх</option>
+        <option value="0">0 — вниз</option>
+      </select></td>
+      <td class="num" data-o="period"></td>
+      <td><input type="radio" name="reference" data-f="reference" aria-label="Опорный ePWM${i + 1}"></td>
+      <td class="num" data-o="shift"></td>
+      <td class="num" data-o="deg"></td>`;
+    tr.addEventListener("input", (ev) => onRowInput(i, ev.target));
+    tr.addEventListener("change", (ev) => onRowInput(i, ev.target));
+    tbody.appendChild(tr);
+    rows.push(tr);
+  }
+}
+
+function onRowInput(i, el) {
+  const f = el.dataset.f;
+  if (!f) return;
+  const t = state.timers[i];
+  if (f === "on") t.on = el.checked;
+  else if (f === "mode") t.mode = el.value;
+  else if (f === "dir") t.dir = +el.value;
+  else if (f === "reference") state.reference = i;
+  else if (f === "prd" || f === "ctr") {
+    // Пока поле пустое или вводится, старое значение держим, а не рисуем мусор.
+    const v = parseNumber(el.value);
+    if (v === null) return;
+    if (f === "prd" && v < 1) return;
+    t[f] = v;
+  }
+  update({ table: false });
+}
+
+function syncTable() {
+  rows.forEach((tr, i) => {
+    const t = state.timers[i];
+    tr.querySelector('[data-f="on"]').checked = t.on;
+    tr.querySelector('[data-f="mode"]').value = t.mode;
+    setIfIdle(tr.querySelector('[data-f="prd"]'), t.prd);
+    setIfIdle(tr.querySelector('[data-f="ctr"]'), t.ctr);
+    tr.querySelector('[data-f="dir"]').value = String(t.dir);
+    tr.querySelector('[data-f="reference"]').checked = state.reference === i;
+  });
+  document.getElementById("overlay").checked = state.overlay;
+  document.getElementById("common-scale").checked = state.commonScale;
+  document.getElementById("tbclk").value = state.tbclk;
+}
+
+// Не перебивать поле, которое человек сейчас правит.
+function setIfIdle(input, value) {
+  if (document.activeElement !== input) input.value = value;
+}
+
+function updateDerived() {
+  const warnings = [];
+  rows.forEach((tr, i) => {
+    const t = state.timers[i];
+    tr.classList.toggle("off", !t.on);
+    // В счёте вверх или вниз направление задано режимом, поле лишь для сверки.
+    tr.querySelector('[data-f="dir"]').title = t.mode === "updown"
+      ? "" : "В этом режиме направление определяется типом счёта";
+    const T = cycleLength(t);
+    tr.querySelector('[data-o="period"]').textContent = T;
+    const d = shiftFromReference(t);
+    const shiftCell = tr.querySelector('[data-o="shift"]');
+    const degCell = tr.querySelector('[data-o="deg"]');
+    if (i === state.reference) {
+      shiftCell.textContent = "опорный";
+      degCell.textContent = "0";
+    } else if (d === null) {
+      shiftCell.textContent = "—";
+      degCell.textContent = "—";
+      shiftCell.title = degCell.title = "Период не совпадает с опорным";
+    } else {
+      shiftCell.textContent = (d > 0 ? "+" : "") + d;
+      degCell.textContent = (d > 0 ? "+" : "") + (d / T * 360).toFixed(1);
+      shiftCell.title = degCell.title = "";
+    }
+
+    const name = "ePWM" + (i + 1);
+    if (t.ctr > t.prd) warnings.push(`${name}: TBCTR = ${t.ctr} больше TBPRD = ${t.prd} — взято TBPRD.`);
+    if (t.ctr < 0) warnings.push(`${name}: TBCTR отрицательный — взят 0.`);
+    if (t.mode === "up" && t.dir === 0) warnings.push(`${name}: счёт вверх, а CTRDIR = 0 — направление не учтено.`);
+    if (t.mode === "down" && t.dir === 1) warnings.push(`${name}: счёт вниз, а CTRDIR = 1 — направление не учтено.`);
+    if (t.prd > 65535 || t.ctr > 65535) warnings.push(`${name}: значение больше 16 бит.`);
+  });
+  document.getElementById("warnings").innerHTML = warnings.map((w) => `<div>${escapeHtml(w)}</div>`).join("");
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+}
+
+// ---------- Вставка списком ----------
+
+function parseNumber(text) {
+  const s = String(text).trim();
+  if (s === "") return null;
+  const v = /^[-+]?0x/i.test(s) ? parseInt(s, 16) : Number(s);
+  return Number.isFinite(v) ? Math.round(v) : null;
+}
+
+function parseList(text) {
+  const items = text.split(/[\s,;]+/).filter(Boolean);
+  if (items.length === 0) return null;
+  const values = items.map(parseNumber);
+  if (values.some((v) => v === null)) return { error: `не число: «${items[values.indexOf(null)]}»` };
+  if (values.length === 1) return { values: Array(TIMER_COUNT).fill(values[0]) };
+  if (values.length > TIMER_COUNT) return { error: `чисел ${values.length}, а таймеров ${TIMER_COUNT}` };
+  return { values };
+}
+
+function applyBulk() {
+  const fields = [["bulk-ctr", "ctr", "TBCTR"], ["bulk-dir", "dir", "CTRDIR"], ["bulk-prd", "prd", "TBPRD"]];
+  const errors = [];
+  const parsed = fields.map(([id, key, label]) => {
+    const r = parseList(document.getElementById(id).value);
+    if (r && r.error) errors.push(`${label}: ${r.error}`);
+    return r && r.values ? { key, values: r.values } : null;
+  });
+  if (errors.length) {
+    alert("Не применено.\n" + errors.join("\n"));
+    return;
+  }
+  parsed.forEach((p) => {
+    if (!p) return;
+    p.values.forEach((v, i) => {
+      const t = state.timers[i];
+      if (p.key === "dir") t.dir = v ? 1 : 0;
+      else if (p.key === "prd") t.prd = Math.max(1, v);
+      else t.ctr = v;
+    });
+  });
+  update({ resetView: true });
+}
+
+function fillBulk() {
+  document.getElementById("bulk-ctr").value = state.timers.map((t) => t.ctr).join(" ");
+  document.getElementById("bulk-dir").value = state.timers.map((t) => t.dir).join(" ");
+  document.getElementById("bulk-prd").value = state.timers.map((t) => t.prd).join(" ");
+}
+
+// ---------- График ----------
+
+const canvas = document.getElementById("plot");
+const ctx = canvas.getContext("2d");
+
+function css(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function visibleTimers() {
+  return state.timers.map((t, i) => ({ t, i })).filter(({ t }) => t.on && validTimer(t));
+}
+
+function resetView() {
+  const vis = visibleTimers();
+  const T = Math.max(1, ...vis.map(({ t }) => cycleLength(t)));
+  // Немного истории до снимка и два периода самого длинного таймера после.
+  view = { t0: -0.25 * T, t1: 2 * T };
+}
+
+function plotLayout() {
+  const width = canvas.clientWidth;
+  const vis = visibleTimers();
+  const lanes = state.overlay ? 1 : Math.max(1, vis.length);
+  const laneHeight = state.overlay ? 320 : (width < 600 ? 70 : 84);
+  const margin = { left: 64, right: 12, top: 10, bottom: 34 };
+  const gap = state.overlay ? 0 : 10;
+  const height = margin.top + margin.bottom + lanes * laneHeight + (lanes - 1) * gap;
+  return { width, height, margin, laneHeight, gap, vis };
+}
+
+function draw() {
+  const L = plotLayout();
+  const dpr = window.devicePixelRatio || 1;
+  if (canvas.height !== Math.round(L.height * dpr) || canvas.width !== Math.round(L.width * dpr)) {
+    canvas.style.height = L.height + "px";
+    canvas.width = Math.round(L.width * dpr);
+    canvas.height = Math.round(L.height * dpr);
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, L.width, L.height);
+  ctx.font = "12px system-ui, sans-serif";
+
+  const x0 = L.margin.left;
+  const x1 = L.width - L.margin.right;
+  const tx = (tick) => x0 + (tick - view.t0) / (view.t1 - view.t0) * (x1 - x0);
+  const plotBottom = L.height - L.margin.bottom;
+
+  const maxPrd = Math.max(1, ...L.vis.map(({ t }) => t.prd));
+  const lanes = state.overlay
+    ? [{ items: L.vis, top: L.margin.top }]
+    : L.vis.map((v, k) => ({ items: [v], top: L.margin.top + k * (L.laneHeight + L.gap) }));
+
+  // Сетка по времени — общая для всех полос.
+  const step = niceStep((view.t1 - view.t0) / Math.max(2, (x1 - x0) / 90));
+  ctx.strokeStyle = css("--grid");
+  ctx.fillStyle = css("--muted");
+  ctx.lineWidth = 1;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  const f = parseFloat(state.tbclk);
+  for (let k = Math.ceil(view.t0 / step) * step; k <= view.t1; k += step) {
+    const x = Math.round(tx(k)) + 0.5;
+    ctx.beginPath();
+    ctx.moveTo(x, L.margin.top);
+    ctx.lineTo(x, plotBottom);
+    ctx.stroke();
+    // Подпись у правого края не влезает — сетку рисуем, подпись нет.
+    if (x + 18 > L.width) continue;
+    ctx.fillText(formatTick(k), x, plotBottom + 4);
+    if (f > 0) ctx.fillText(formatMicro(k / f), x, plotBottom + 18);
+  }
+  ctx.textAlign = "left";
+  ctx.fillText("такт", 2, plotBottom + 4);
+  if (f > 0) ctx.fillText("мкс", 2, plotBottom + 18);
+
+  if (L.vis.length === 0) {
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("Нет включённых таймеров", (x0 + x1) / 2, (L.margin.top + plotBottom) / 2);
+    return;
+  }
+
+  lanes.forEach((lane) => {
+    const scale = state.overlay || state.commonScale ? maxPrd : lane.items[0].t.prd;
+    const pad = 6;
+    const yTop = lane.top + pad;
+    const yBottom = lane.top + L.laneHeight - pad;
+    const ty = (v) => yBottom - v / scale * (yBottom - yTop);
+
+    // Рамка полосы и уровни 0 и TBPRD.
+    ctx.strokeStyle = css("--axis");
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x0, Math.round(ty(0)) + 0.5);
+    ctx.lineTo(x1, Math.round(ty(0)) + 0.5);
+    ctx.stroke();
+
+    ctx.fillStyle = css("--muted");
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    ctx.fillText("0", x0 - 6, ty(0));
+    const levels = state.overlay ? [...new Set(lane.items.map(({ t }) => t.prd))] : [lane.items[0].t.prd];
+    ctx.setLineDash([3, 4]);
+    ctx.strokeStyle = css("--grid");
+    levels.forEach((prd) => {
+      const y = Math.round(ty(prd)) + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(x0, y);
+      ctx.lineTo(x1, y);
+      ctx.stroke();
+      ctx.fillText(prd, x0 - 6, y);
+    });
+    ctx.setLineDash([]);
+
+    if (!state.overlay) {
+      const { i } = lane.items[0];
+      ctx.fillStyle = css(`--t${i + 1}`);
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.font = "600 12px system-ui, sans-serif";
+      ctx.fillText(`ePWM${i + 1}`, x0 + 4, lane.top + 2);
+      ctx.font = "12px system-ui, sans-serif";
+    }
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x0, lane.top - 2, x1 - x0, L.laneHeight + 4);
+    ctx.clip();
+    lane.items.forEach(({ t, i }) => drawCounter(t, css(`--t${i + 1}`), tx, ty));
+    lane.items.forEach(({ t, i }) => {
+      // Точка снимка: где был счётчик в момент t = 0.
+      ctx.fillStyle = css(`--t${i + 1}`);
+      ctx.beginPath();
+      ctx.arc(tx(0), ty(counterAt(t, 0)), 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.restore();
+  });
+
+  // Момент снимка.
+  const xs = Math.round(tx(0)) + 0.5;
+  if (xs >= x0 && xs <= x1) {
+    ctx.strokeStyle = css("--snapshot");
+    ctx.lineWidth = 1;
+    ctx.setLineDash([5, 3]);
+    ctx.beginPath();
+    ctx.moveTo(xs, L.margin.top);
+    ctx.lineTo(xs, plotBottom);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  if (hoverTick !== null) drawHover(L, tx, x0, x1, plotBottom);
+}
+
+// Счётчик — ломаная по целым тактам. Наклон меняется только в начале
+// периода и на TBPRD, поэтому достаточно этих вершин; между ними линейная
+// интерполяция точно проходит через значения в каждом такте.
+function drawCounter(t, color, tx, ty) {
+  const T = cycleLength(t);
+  const p0 = cyclePosition(t);
+  const v0 = t.mode === "down" ? t.prd : 0;
+  const v1 = t.mode === "down" ? 0 : t.prd;
+  // Для счёта вверх и вниз между TBPRD и следующим началом — один такт сброса.
+  let start = Math.floor((view.t0 + p0) / T) * T - p0 - T;
+  const cycles = (view.t1 - start) / T;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.6;
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  if (cycles > 20000) {
+    // Периодов больше, чем пикселей, — рисуем полосой размаха.
+    ctx.globalAlpha = 0.25;
+    ctx.fillStyle = color;
+    ctx.fillRect(tx(view.t0), ty(t.prd), tx(view.t1) - tx(view.t0), ty(0) - ty(t.prd));
+    ctx.globalAlpha = 1;
+    return;
+  }
+  ctx.moveTo(tx(start), ty(v0));
+  for (; start <= view.t1 + T; start += T) {
+    ctx.lineTo(tx(start), ty(v0));
+    ctx.lineTo(tx(start + t.prd), ty(v1));
+  }
+  ctx.stroke();
+}
+
+function drawHover(L, tx, x0, x1, plotBottom) {
+  const x = Math.round(tx(hoverTick)) + 0.5;
+  if (x < x0 || x > x1) return;
+  ctx.strokeStyle = css("--muted");
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x, L.margin.top);
+  ctx.lineTo(x, plotBottom);
+  ctx.stroke();
+
+  const f = parseFloat(state.tbclk);
+  const lines = [{ text: `t = ${hoverTick}` + (f > 0 ? ` (${formatMicro(hoverTick / f)} мкс)` : ""), color: css("--text") }];
+  L.vis.forEach(({ t, i }) => {
+    const dir = directionAt(t, hoverTick) ? "↑" : "↓";
+    lines.push({ text: `ePWM${i + 1}: ${counterAt(t, hoverTick)} ${dir}`, color: css(`--t${i + 1}`) });
+  });
+  ctx.font = "12px ui-monospace, Menlo, Consolas, monospace";
+  const w = Math.max(...lines.map((l) => ctx.measureText(l.text).width)) + 16;
+  const h = lines.length * 16 + 10;
+  let bx = x + 10;
+  if (bx + w > x1) bx = x - 10 - w;
+  const by = L.margin.top + 4;
+  ctx.fillStyle = css("--panel");
+  ctx.strokeStyle = css("--border");
+  ctx.globalAlpha = 0.94;
+  ctx.fillRect(bx, by, w, h);
+  ctx.globalAlpha = 1;
+  ctx.strokeRect(bx + 0.5, by + 0.5, w, h);
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  lines.forEach((l, k) => {
+    ctx.fillStyle = l.color;
+    ctx.fillText(l.text, bx + 8, by + 6 + k * 16);
+  });
+  ctx.font = "12px system-ui, sans-serif";
+}
+
+function niceStep(raw) {
+  const p = Math.pow(10, Math.floor(Math.log10(Math.max(raw, 1e-9))));
+  const n = raw / p;
+  const s = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
+  return Math.max(1, s * p);
+}
+
+function formatTick(k) {
+  return Math.abs(k) >= 1e6 ? (k / 1e6) + "M" : String(Math.round(k));
+}
+
+function formatMicro(us) {
+  return Math.abs(us) >= 100 ? us.toFixed(0) : Math.abs(us) >= 1 ? us.toFixed(2) : us.toFixed(3);
+}
+
+// ---------- Мышь и касания ----------
+
+function tickFromEvent(ev) {
+  const L = plotLayout();
+  const rect = canvas.getBoundingClientRect();
+  const x = ev.clientX - rect.left;
+  const x0 = L.margin.left;
+  const x1 = L.width - L.margin.right;
+  return { tick: view.t0 + (x - x0) / (x1 - x0) * (view.t1 - view.t0), inside: x >= x0 && x <= x1, x0, x1 };
+}
+
+let drag = null;
+
+canvas.addEventListener("pointerdown", (ev) => {
+  canvas.setPointerCapture(ev.pointerId);
+  drag = { x: ev.clientX, t0: view.t0, t1: view.t1 };
+});
+canvas.addEventListener("pointermove", (ev) => {
+  const { tick, inside, x0, x1 } = tickFromEvent(ev);
+  if (drag) {
+    const dt = (ev.clientX - drag.x) / (x1 - x0) * (drag.t1 - drag.t0);
+    view = { t0: drag.t0 - dt, t1: drag.t1 - dt };
+  }
+  hoverTick = inside ? Math.round(tick) : null;
+  draw();
+});
+canvas.addEventListener("pointerup", () => { drag = null; });
+canvas.addEventListener("pointercancel", () => { drag = null; });
+canvas.addEventListener("pointerleave", () => {
+  if (!drag) { hoverTick = null; draw(); }
+});
+canvas.addEventListener("wheel", (ev) => {
+  ev.preventDefault();
+  const { tick } = tickFromEvent(ev);
+  const k = Math.exp(ev.deltaY * 0.0015);
+  const span = (view.t1 - view.t0) * k;
+  if (span < 8 || span > 1e9) return;
+  const a = (tick - view.t0) / (view.t1 - view.t0);
+  view = { t0: tick - a * span, t1: tick + (1 - a) * span };
+  draw();
+}, { passive: false });
+
+// ---------- Сборка ----------
+
+function update({ table = true, resetView: reset = false } = {}) {
+  if (table) syncTable();
+  updateDerived();
+  if (reset) resetView();
+  saveState();
+  draw();
+}
+
+buildTable();
+resetView();
+update();
+
+document.getElementById("mode-all").addEventListener("change", (ev) => {
+  if (!ev.target.value) return;
+  state.timers.forEach((t) => { t.mode = ev.target.value; });
+  ev.target.value = "";
+  update({ resetView: true });
+});
+document.getElementById("prd-all").addEventListener("change", (ev) => {
+  const v = parseNumber(ev.target.value);
+  ev.target.value = "";
+  if (v === null || v < 1) return;
+  state.timers.forEach((t) => { t.prd = v; });
+  update({ resetView: true });
+});
+document.getElementById("overlay").addEventListener("change", (ev) => { state.overlay = ev.target.checked; update(); });
+document.getElementById("common-scale").addEventListener("change", (ev) => { state.commonScale = ev.target.checked; update(); });
+document.getElementById("tbclk").addEventListener("input", (ev) => { state.tbclk = ev.target.value; update({ table: false }); });
+document.getElementById("reset-view").addEventListener("click", () => { resetView(); draw(); });
+document.getElementById("bulk-apply").addEventListener("click", applyBulk);
+document.getElementById("bulk-fill").addEventListener("click", fillBulk);
+document.querySelectorAll(".bulk input").forEach((el) => {
+  el.addEventListener("keydown", (ev) => { if (ev.key === "Enter") applyBulk(); });
+});
+window.addEventListener("resize", draw);
+window.addEventListener("hashchange", () => {
+  const s = decodeHash(location.hash);
+  if (s) { state = s; update({ resetView: true }); }
+});
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", draw);
+</script>
+</body>
+</html>

@@ -91,6 +91,10 @@
   tr.drop-before td { box-shadow: inset 0 2px 0 var(--accent); }
   tr.drop-after td { box-shadow: inset 0 -2px 0 var(--accent); }
   tr.dragging { opacity: 0.4; }
+  .sets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .sets button { border-radius: 16px; padding: 4px 12px; }
+  .sets button.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .sets kbd { font: 11px ui-monospace, Menlo, Consolas, monospace; opacity: 0.6; margin-left: 4px; }
   .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; }
   tr.off td:not(:first-child) { opacity: 0.45; }
   .warn { color: var(--warn); }
@@ -118,6 +122,20 @@
   <p class="lead">Введите снимок TBCTR, TBSTS.CTRDIR и TBPRD восьми модулей,
     сделанный в один и тот же момент, — страница покажет, как их счётчики идут
     друг относительно друга. Время считается в тактах TBCLK; момент снимка — t = 0.</p>
+
+  <section>
+    <h2>Наборы</h2>
+    <div id="sets" class="sets" role="tablist"></div>
+    <div class="row">
+      <button id="set-add" title="Новый набор — копия текущего">+ Новый набор</button>
+      <button id="set-rename">Переименовать</button>
+      <button id="set-delete">Удалить</button>
+    </div>
+    <div class="hint">Каждый набор хранит свои значения, тип счёта и порядок графиков; правки
+      сразу сохраняются в текущий набор. Переключаться можно и клавишами 1…9 — масштаб
+      графика при этом не меняется, так что удобно сравнивать. Наборы хранятся в этом
+      браузере; чтобы передать набор, скопируйте адрес страницы.</div>
+  </section>
 
   <section>
     <h2>Таймеры</h2>
@@ -208,7 +226,9 @@
 
 const TIMER_COUNT = 8;
 const MODE_NAMES = { up: "вверх", down: "вниз", updown: "вверх-вниз" };
+// Старый ключ одного снимка — читается лишь затем, чтобы перенести его в наборы.
 const STORAGE_KEY = "epwm-phase-state";
+const SETS_KEY = "epwm-sets";
 
 // Пример по умолчанию: восемь таймеров вверх-вниз, разнесённых на 45°, —
 // сразу видно, что страница умеет показывать сдвиг.
@@ -227,7 +247,9 @@ function defaultState() {
   };
 }
 
-let state = loadState();
+// state — всегда объект текущего набора, так что правки сразу попадают в него.
+let { sets, active: activeSet } = loadSets();
+let state = sets[activeSet].state;
 // Видимое окно по времени, в тактах. Задаётся по периодам при загрузке и
 // кнопкой, дальше меняется колесом и перетаскиванием.
 let view = { t0: 0, t1: 1 };
@@ -362,19 +384,99 @@ function decodeHash(hash) {
   });
 }
 
-function loadState() {
-  const fromHash = decodeHash(location.hash);
-  if (fromHash) return fromHash;
+function loadSets() {
+  let sets = null;
+  let active = 0;
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) return sanitize(JSON.parse(saved));
-  } catch (e) { /* хранилище недоступно — берём пример */ }
-  return defaultState();
+    const saved = JSON.parse(localStorage.getItem(SETS_KEY));
+    if (saved && Array.isArray(saved.sets) && saved.sets.length) {
+      sets = saved.sets.map((x, k) => ({ name: String(x.name || `Набор ${k + 1}`), state: sanitize(x.state) }));
+      active = Math.min(Math.max(0, saved.active | 0), sets.length - 1);
+    } else {
+      const old = localStorage.getItem(STORAGE_KEY);
+      if (old) sets = [{ name: "Набор 1", state: sanitize(JSON.parse(old)) }];
+    }
+  } catch (e) { /* хранилище недоступно или испорчено — начнём с примера */ }
+  if (!sets) sets = [{ name: "Набор 1", state: defaultState() }];
+
+  // Снимок из ссылки не должен затирать чужой сохранённый набор: если он
+  // совпадает с одним из наборов — открываем тот, иначе добавляем новый.
+  const fromHash = decodeHash(location.hash);
+  if (fromHash) active = adoptState(sets, active, fromHash);
+  return { sets, active };
+}
+
+function adoptState(sets, active, s) {
+  const code = encodeHash(s);
+  if (encodeHash(sets[active].state) === code) return active;
+  const k = sets.findIndex((x) => encodeHash(x.state) === code);
+  if (k >= 0) return k;
+  sets.push({ name: "Из ссылки", state: s });
+  return sets.length - 1;
 }
 
 function saveState() {
   history.replaceState(null, "", encodeHash(state));
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* не страшно */ }
+  try {
+    localStorage.setItem(SETS_KEY, JSON.stringify({ active: activeSet, sets }));
+  } catch (e) { /* не страшно: наборы просто не переживут перезагрузку */ }
+}
+
+// ---------- Наборы ----------
+
+function renderSets() {
+  const box = document.getElementById("sets");
+  box.innerHTML = "";
+  sets.forEach((x, k) => {
+    const b = document.createElement("button");
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(k === activeSet));
+    b.className = k === activeSet ? "active" : "";
+    b.textContent = x.name;
+    if (k < 9) {
+      const kbd = document.createElement("kbd");
+      kbd.textContent = k + 1;
+      b.appendChild(kbd);
+    }
+    b.title = "Двойной щелчок — переименовать";
+    // Щелчок по текущему не перерисовывает вкладки, иначе двойной щелчок
+    // (переименование) пришёлся бы на уже удалённую кнопку.
+    b.addEventListener("click", () => { if (k !== activeSet) switchSet(k); });
+    b.addEventListener("dblclick", renameSet);
+    box.appendChild(b);
+  });
+  document.getElementById("set-delete").disabled = sets.length < 2;
+}
+
+// Окно по времени не трогаем: при сравнении наборов картинка должна
+// меняться только там, где отличаются сами таймеры.
+function switchSet(k) {
+  if (k < 0 || k >= sets.length) return;
+  activeSet = k;
+  state = sets[k].state;
+  update();
+}
+
+function addSet() {
+  const used = new Set(sets.map((x) => x.name));
+  let n = sets.length + 1;
+  while (used.has(`Набор ${n}`)) n++;
+  sets.push({ name: `Набор ${n}`, state: JSON.parse(JSON.stringify(state)) });
+  switchSet(sets.length - 1);
+}
+
+function renameSet() {
+  const name = prompt("Название набора", sets[activeSet].name);
+  if (name === null || !name.trim()) return;
+  sets[activeSet].name = name.trim().slice(0, 40);
+  update({ table: false });
+}
+
+function deleteSet() {
+  if (sets.length < 2) return;
+  if (!confirm(`Удалить «${sets[activeSet].name}»?`)) return;
+  sets.splice(activeSet, 1);
+  switchSet(Math.min(activeSet, sets.length - 1));
 }
 
 // ---------- Таблица ----------
@@ -899,6 +1001,7 @@ canvas.addEventListener("wheel", (ev) => {
 
 function update({ table = true, resetView: reset = false } = {}) {
   if (table) syncTable();
+  renderSets();
   updateDerived();
   if (reset) resetView();
   saveState();
@@ -936,10 +1039,18 @@ document.getElementById("bulk-fill").addEventListener("click", fillBulk);
 document.querySelectorAll(".bulk input").forEach((el) => {
   el.addEventListener("keydown", (ev) => { if (ev.key === "Enter") applyBulk(); });
 });
+document.getElementById("set-add").addEventListener("click", addSet);
+document.getElementById("set-rename").addEventListener("click", renameSet);
+document.getElementById("set-delete").addEventListener("click", deleteSet);
+document.addEventListener("keydown", (ev) => {
+  if (ev.ctrlKey || ev.altKey || ev.metaKey) return;
+  if (ev.target.closest("input, select, textarea")) return;
+  if (/^[1-9]$/.test(ev.key)) switchSet(+ev.key - 1);
+});
 window.addEventListener("resize", draw);
 window.addEventListener("hashchange", () => {
   const s = decodeHash(location.hash);
-  if (s) { state = s; update({ resetView: true }); }
+  if (s) switchSet(adoptState(sets, activeSet, s));
 });
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", draw);
 </script>

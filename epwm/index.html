@@ -214,12 +214,12 @@
       <label><input id="overlay" type="checkbox"> Наложить на один график</label>
       <label><input id="common-scale" type="checkbox" checked> Общая шкала по вертикали</label>
       <label>TBCLK, МГц <input id="tbclk" type="number" min="0" step="any" placeholder="—" title="Если задать, ось времени подпишется и в микросекундах"></label>
-      <button id="reset-view" title="Окно в два периода, левый край — ноль опорного таймера">Показать два периода</button>
+      <button id="reset-view" title="Окно в один период, левый край — ноль опорного таймера">Показать один период</button>
       <button id="fit-height" title="Графики во всю высоту окна; ширина не меняется (Esc — вернуть)">Во всю высоту</button>
     </div>
     <div id="plot-wrap"><canvas id="plot"></canvas></div>
     <div id="height-grip" class="height-grip" title="Потяните, чтобы изменить высоту графиков; двойной щелчок — обычная высота"></div>
-    <div class="hint">«Показать два периода» ставит у левого края ноль опорного таймера.
+    <div class="hint">«Показать один период» ставит у левого края ноль опорного таймера.
       Колесо мыши — масштаб по времени, перетаскивание — сдвиг.
       Наведите курсор, чтобы увидеть значения всех счётчиков в этот такт.
       Порядок графиков меняется стрелками ▲▼ или перетаскиванием строки за ⠿ в таблице.
@@ -766,9 +766,10 @@ function referenceZeroTick(s) {
 function resetView() {
   const vis = visibleTimers();
   const T = Math.max(1, ...vis.map(({ t }) => cycleLength(t)));
-  // Два периода самого длинного таймера от нуля опорного.
+  // Один период самого длинного таймера от нуля опорного: при равных
+  // периодах опорный проходит ровно от нуля до нуля.
   const t0 = referenceZeroTick(state);
-  view = { t0, t1: t0 + 2 * T };
+  view = { t0, t1: t0 + T };
 }
 
 // Высота графиков: null — обычная (полосы постоянной высоты), "fit" — во

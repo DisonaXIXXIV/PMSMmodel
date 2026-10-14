@@ -1,0 +1,90 @@
+<!doctype html>
+<!--
+  Иллюстрация преобразования Парка: вращающийся вектор, неподвижные оси α–β и
+  вращающиеся оси u–v. Отдельная страница со своим кодом — от модели машины
+  она берёт только темы оформления (../Theme.js), поэтому тема у всех страниц
+  общая и переключается одинаково.
+-->
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Преобразование Парка</title>
+    <link rel="stylesheet" href="park.css">
+  </head>
+  <body>
+    <main id="stage"></main>
+
+    <aside id="panel">
+      <header class="panel-header">
+        <h1>Преобразование Парка</h1>
+        <div class="header-actions">
+          <button type="button" id="pause" aria-pressed="false" title="Пауза (пробел)">Пауза</button>
+          <button type="button" id="theme" title="Тема (T)">Тема</button>
+        </div>
+      </header>
+
+      <section class="card">
+        <h2>Вектор</h2>
+        <div class="slider-row">
+          <label for="amplitude">Амплитуда</label>
+          <output id="amplitude-value" for="amplitude"></output>
+          <div class="slider-track"><input type="range" id="amplitude"></div>
+        </div>
+        <div class="slider-row">
+          <label for="vector-speed">Скорость вектора, об/с</label>
+          <output id="vector-speed-value" for="vector-speed"></output>
+          <div class="slider-track">
+            <input type="range" id="vector-speed">
+            <span class="speed-mark speed-mark-frame" id="vector-speed-mark"
+                  title="Скорость осей u–v"></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Оси u–v</h2>
+        <div class="slider-row">
+          <label for="frame-speed">Скорость осей, об/с</label>
+          <output id="frame-speed-value" for="frame-speed"></output>
+          <div class="slider-track">
+            <input type="range" id="frame-speed">
+            <span class="speed-mark speed-mark-vector" id="frame-speed-mark"
+                  title="Скорость вектора"></span>
+          </div>
+        </div>
+        <button type="button" id="sync" class="wide">Синхронизировать</button>
+        <p class="hint">Отпустите ползунок скорости рядом с меткой — скорости
+          станут равны, и вектор замрёт в осях u–v.</p>
+      </section>
+
+      <section class="card">
+        <h2>Проекции</h2>
+        <label class="checkbox"><input type="checkbox" id="show-alpha-beta" checked>
+          На оси α–β</label>
+        <label class="checkbox"><input type="checkbox" id="show-uv" checked>
+          На оси u–v</label>
+      </section>
+
+      <section class="card">
+        <h2>Значения</h2>
+        <dl class="readouts">
+          <div><dt><span class="swatch swatch-alpha"></span>α</dt><dd id="read-alpha"></dd></div>
+          <div><dt><span class="swatch swatch-beta"></span>β</dt><dd id="read-beta"></dd></div>
+          <div><dt><span class="swatch swatch-u"></span>u</dt><dd id="read-u"></dd></div>
+          <div><dt><span class="swatch swatch-v"></span>v</dt><dd id="read-v"></dd></div>
+          <div class="wide-readout"><dt>Скорость вектора в осях u–v</dt><dd id="read-slip"></dd></div>
+        </dl>
+      </section>
+
+      <p class="back"><a href="../">← К модели PMSM</a></p>
+    </aside>
+
+    <!-- Сборки нет: файлы подключаются по одному. Theme.js идёт первым — он
+         выставляет тему до первого кадра. -->
+    <script src="https://cdn.jsdelivr.net/npm/p5@2.3.3/lib/p5.min.js"></script>
+    <script src="../Theme.js"></script>
+    <script src="ParkTransform.js"></script>
+    <script src="park.js"></script>
+  </body>
+</html>

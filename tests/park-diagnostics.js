@@ -59,7 +59,42 @@ function testParkSpeedSnap() {
     "default speeds differ by more than the snap distance");
 }
 
+// Диаграмма и осциллограммы лежат внутри полотна и не налезают друг на друга
+// в обеих раскладках и с осями u–v и без них.
+function testParkLayout() {
+  const inside = (r, w, h) => r.x >= 0 && r.y >= 0 && r.x + r.w <= w + 1e-9 && r.y + r.h <= h + 1e-9
+    && r.w > 0 && r.h > 0;
+  const overlap = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  for (const [w, h] of [[940, 760], [390, 490], [1600, 600]]) {
+    for (const showFrame of [true, false]) {
+      let layout = parkLayout(w, h, showFrame);
+      let rects = [layout.diagram, ...layout.scopes];
+      check(layout.scopes.length === (showFrame ? 2 : 1),
+        "scope count follows u-v axes at " + w + "x" + h);
+      for (const r of rects) check(inside(r, w, h), "layout rectangle inside canvas at " + w + "x" + h);
+      for (let i = 0; i < rects.length; i++) {
+        for (let j = i + 1; j < rects.length; j++) {
+          check(!overlap(rects[i], rects[j]), "layout rectangles do not overlap at " + w + "x" + h);
+        }
+      }
+    }
+  }
+}
+
+// Окно истории: старые отсчёты уходят, один за левым краем остаётся.
+function testParkHistory() {
+  let samples = [];
+  for (let t = 0; t <= 10; t += 0.5) samples.push({ t });
+  parkTrimHistory(samples, 10, 4);
+  check(samples[0].t === 6 && samples[samples.length - 1].t === 10,
+    "history keeps window plus one sample at the left edge");
+  parkTrimHistory(samples, 10, 4);
+  check(samples[0].t === 6, "trimming twice changes nothing");
+}
+
 testParkTransform();
+testParkLayout();
+testParkHistory();
 testParkAngleWrap();
 testParkSpeedSnap();
 

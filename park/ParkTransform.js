@@ -60,3 +60,49 @@ function parkSnapSpeed(moved, other, threshold = PARK_SPEED_SNAP) {
   }
   return best;
 }
+
+// -- осциллограммы -----------------------------------------------------------
+
+// Окно осциллограмм в секундах. При самой медленной заметной скорости
+// (0,25 об/с) в него помещается период, при предельной (0,5 об/с) — два.
+const PARK_SCOPE_WINDOW = 4.0;
+
+// Раскладка полотна: векторная диаграмма и под ней или рядом осциллограммы —
+// сверху α и β, снизу u и v. Без осей u–v нижняя осциллограмма не нужна, и
+// верхняя занимает всё место. Широкое полотно делится по горизонтали
+// (диаграмма слева), узкое и портретное — по вертикали.
+function parkLayout(width, height, showFrame) {
+  let margin = 12;
+  let gap = 10;
+  let diagram;
+  let scopeArea;
+  if (width >= height * 1.25) {
+    let side = Math.min(height, width * 0.5);
+    diagram = { x: 0, y: 0, w: side, h: height };
+    scopeArea = { x: side, y: margin, w: width - side - margin, h: height - 2 * margin };
+  } else {
+    let side = Math.min(width, height * 0.55);
+    diagram = { x: 0, y: 0, w: width, h: side };
+    scopeArea = { x: margin, y: side, w: width - 2 * margin, h: height - side - margin };
+  }
+  let scopes;
+  if (showFrame) {
+    let each = (scopeArea.h - gap) / 2;
+    scopes = [
+      { x: scopeArea.x, y: scopeArea.y, w: scopeArea.w, h: each },
+      { x: scopeArea.x, y: scopeArea.y + each + gap, w: scopeArea.w, h: each },
+    ];
+  } else {
+    scopes = [scopeArea];
+  }
+  return { diagram, scopes };
+}
+
+// Отбрасывает отсчёты старше окна, но один за левым краем оставляет: иначе
+// кривая начиналась бы не от края, а с первого отсчёта внутри окна.
+function parkTrimHistory(samples, now, window = PARK_SCOPE_WINDOW) {
+  let first = 0;
+  while (first + 1 < samples.length && samples[first + 1].t <= now - window) first++;
+  if (first > 0) samples.splice(0, first);
+  return samples;
+}

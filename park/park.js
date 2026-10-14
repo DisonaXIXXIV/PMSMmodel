@@ -19,6 +19,10 @@ const park = {
   // картинке остаётся только вектор в α–β, с чего объяснение и начинается.
   showFrame: true,
   paused: false,
+  // Модельное время и отсчёты для осциллограмм. Время своё, а не millis():
+  // на паузе оно стоит, и осциллограммы замирают вместе с вектором.
+  time: 0.0,
+  history: [],
 };
 
 const controls = {};
@@ -43,12 +47,29 @@ function draw() {
   let dt = park.paused ? 0.0 : Math.min(deltaTime / 1000.0, 0.1);
   park.vectorAngle = parkWrapAngle(park.vectorAngle + 2 * Math.PI * park.vectorSpeed * dt);
   park.frameAngle = parkWrapAngle(park.frameAngle + 2 * Math.PI * park.frameSpeed * dt);
+  park.time += dt;
 
   let ab = parkAlphaBeta(park.amplitude, park.vectorAngle);
   let uv = parkTransform(ab.alpha, ab.beta, park.frameAngle);
+  if (dt > 0 || park.history.length === 0) {
+    park.history.push({ t: park.time, alpha: ab.alpha, beta: ab.beta, u: uv.u, v: uv.v });
+    parkTrimHistory(park.history, park.time);
+  }
 
   backgroundTheme(theme().motorBackground);
-  drawScene(ab, uv);
+  let layout = parkLayout(width, height, park.showFrame);
+  drawScene(ab, uv, layout.diagram);
+  let palette = theme();
+  drawScope(layout.scopes[0], "α, β", [
+    { key: "alpha", label: "α", entry: palette.componentAlpha },
+    { key: "beta", label: "β", entry: palette.componentBeta },
+  ]);
+  if (park.showFrame) {
+    drawScope(layout.scopes[1], "u, v", [
+      { key: "u", label: "u", entry: palette.componentD },
+      { key: "v", label: "v", entry: palette.componentQ },
+    ]);
+  }
   updateReadouts(ab, uv);
 }
 
@@ -176,11 +197,11 @@ function keyPressed() {
 
 // -- рисование ---------------------------------------------------------------
 
-function drawScene(ab, uv) {
-  let cx = width / 2;
-  let cy = height / 2;
+function drawScene(ab, uv, area) {
+  let cx = area.x + area.w / 2;
+  let cy = area.y + area.h / 2;
   // Радиус, соответствующий амплитуде 1. Запас по краю — под подписи осей.
-  let radius = Math.min(width, height) * 0.38;
+  let radius = Math.min(area.w, area.h) * 0.36;
   let toScreen = (x, y) => [cx + x * radius, cy - y * radius];
   let palette = theme();
 
@@ -272,4 +293,92 @@ function drawHead(x0, y0, x1, y1, entry, size) {
   triangle(x1, y1,
     x1 - size * Math.cos(angle - 0.4), y1 - size * Math.sin(angle - 0.4),
     x1 - size * Math.cos(angle + 0.4), y1 - size * Math.sin(angle + 0.4));
+}
+
+// Осциллограмма: два сигнала в общих осях, время идёт справа налево — правый
+// край это «сейчас», как у самописца. Масштаб по вертикали постоянный (±1 —
+// предел амплитуды): при смене амплитуды кривые меняют размах, а не шкалу.
+function drawScope(area, title, signals) {
+  let palette = theme();
+  let pad = { left: 30, right: 10, top: 22, bottom: 20 };
+  let plot = {
+    x: area.x + pad.left,
+    y: area.y + pad.top,
+    w: Math.max(area.w - pad.left - pad.right, 10),
+    h: Math.max(area.h - pad.top - pad.bottom, 10),
+  };
+  let yScale = plot.h / 2 / 1.1;
+  let midY = plot.y + plot.h / 2;
+  let toX = (t) => plot.x + plot.w * (1 - (park.time - t) / PARK_SCOPE_WINDOW);
+  let toY = (value) => midY - value * yScale;
+
+  noFill();
+  strokeTheme(palette.axisAlphaBeta, 70);
+  strokeWeight(1);
+  rect(plot.x, plot.y, plot.w, plot.h);
+
+  // Сетка: секунды по времени, ±1 по значению. Секунды привязаны к модельному
+  // времени и уезжают влево вместе с кривыми.
+  textSize(10);
+  textStyle(NORMAL);
+  for (let t = Math.ceil(park.time - PARK_SCOPE_WINDOW); t <= park.time; t++) {
+    let x = toX(t);
+    if (x < plot.x) continue;
+    strokeTheme(palette.axisAlphaBeta, 35);
+    line(x, plot.y, x, plot.y + plot.h);
+  }
+  for (const level of [-1, 1]) {
+    strokeTheme(palette.axisAlphaBeta, 35);
+    line(plot.x, toY(level), plot.x + plot.w, toY(level));
+  }
+  strokeTheme(palette.axisAlphaBeta, 120);
+  line(plot.x, midY, plot.x + plot.w, midY);
+
+  noStroke();
+  fillTheme(palette.legendLabel);
+  textAlign(RIGHT, CENTER);
+  text("1", plot.x - 6, toY(1));
+  text("0", plot.x - 6, midY);
+  text("−1", plot.x - 6, toY(-1));
+  textAlign(RIGHT, TOP);
+  text("t, с", plot.x + plot.w, plot.y + plot.h + 5);
+  textAlign(LEFT, TOP);
+  text("−" + PARK_SCOPE_WINDOW + " с", plot.x, plot.y + plot.h + 5);
+
+  // Заголовок и легенда над графиком: цвет сигнала — тот же, что у проекции.
+  textAlign(LEFT, BOTTOM);
+  textSize(13);
+  textStyle(BOLD);
+  let x = plot.x;
+  for (const signal of signals) {
+    fillTheme(signal.entry, 255);
+    text(signal.label, x, plot.y - 5);
+    x += textWidth(signal.label) + 14;
+  }
+
+  // Кривые обрезаются по рамке: отсчёт за левым краем нужен, чтобы линия
+  // доходила до края, но рисоваться за рамкой не должен.
+  drawingContext.save();
+  drawingContext.beginPath();
+  drawingContext.rect(plot.x, plot.y, plot.w, plot.h);
+  drawingContext.clip();
+  noFill();
+  strokeWeight(2);
+  for (const signal of signals) {
+    strokeTheme(signal.entry, 255);
+    beginShape();
+    for (const sample of park.history) vertex(toX(sample.t), toY(sample[signal.key]));
+    endShape();
+  }
+  drawingContext.restore();
+
+  // Текущее значение — точка на правом краю, там же, где сейчас конец проекции.
+  let last = park.history[park.history.length - 1];
+  if (last) {
+    noStroke();
+    for (const signal of signals) {
+      fillTheme(signal.entry, 255);
+      circle(plot.x + plot.w, toY(last[signal.key]), 6);
+    }
+  }
 }

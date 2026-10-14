@@ -10,14 +10,12 @@ const park = {
   vectorSpeed: PARK_DEFAULT_VECTOR_SPEED,
   frameSpeed: PARK_DEFAULT_FRAME_SPEED,
   vectorAngle: 0.0,
-  // Оси u–v стартуют не совпадая с вектором: иначе с первого кадра не видно,
-  // что это две разные вещи и что кнопка «Синхронизировать» что-то делает.
-  frameAngle: -Math.PI / 4,
+  frameAngle: 0.0,
   showAlphaBeta: true,
   showUv: true,
   // Оси u–v можно убрать целиком, вместе с проекциями на них: тогда на
   // картинке остаётся только вектор в α–β, с чего объяснение и начинается.
-  showFrame: true,
+  showFrame: false,
   paused: false,
   // Модельное время и отсчёты для осциллограмм. Время своё, а не millis():
   // на паузе оно стоит, и осциллограммы замирают вместе с вектором.
@@ -105,6 +103,12 @@ function bindControls() {
   controls["show-uv"].addEventListener("change", (event) => {
     park.showUv = event.target.checked;
   });
+  // Начальное положение флажков — из состояния, а не из разметки: значения
+  // по умолчанию записаны в одном месте.
+  controls["show-alpha-beta"].checked = park.showAlphaBeta;
+  controls["show-uv"].checked = park.showUv;
+  controls["show-frame"].checked = park.showFrame;
+  controls["show-uv"].disabled = !park.showFrame;
   controls["show-frame"].addEventListener("change", (event) => {
     park.showFrame = event.target.checked;
     // Без осей проекциям на них не на что ложиться: флажок остаётся в своём

@@ -16,7 +16,9 @@ const PARK_SPEED_SNAP = 0.03;
 const PARK_AMPLITUDE_MAXIMUM = 1.0;
 
 const PARK_DEFAULT_VECTOR_SPEED = 0.25;
-const PARK_DEFAULT_FRAME_SPEED = 0.1;
+// Оси u–v по умолчанию стоят и совпадают с α–β (и вовсе скрыты): объяснение
+// начинается с вектора в неподвижных осях, а вращающиеся оси включают потом.
+const PARK_DEFAULT_FRAME_SPEED = 0.0;
 const PARK_DEFAULT_AMPLITUDE = 0.8;
 
 // Угол в [-π, π): накопленный угол растёт без предела, а синус большого числа

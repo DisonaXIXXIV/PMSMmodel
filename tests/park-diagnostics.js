@@ -44,10 +44,10 @@ function testParkAngleWrap() {
 }
 
 function testParkSpeedSnap() {
-  check(parkSnapSpeed(0.45, 0.5) === 0.5, "close speed snaps to the other one");
+  check(parkSnapSpeed(0.48, 0.5) === 0.5, "close speed snaps to the other one");
   check(parkSnapSpeed(0.5 - PARK_SPEED_SNAP, 0.5) === 0.5, "speed exactly at threshold snaps");
   check(parkSnapSpeed(0.3, 0.5) === 0.3, "distant speed stays as set");
-  check(parkSnapSpeed(-0.52, -0.5) === -0.5, "snap works for negative speeds");
+  check(parkSnapSpeed(-0.48, -0.5) === -0.5, "snap works for negative speeds");
   check(PARK_DEFAULT_VECTOR_SPEED >= PARK_SPEED_MINIMUM && PARK_DEFAULT_VECTOR_SPEED <= PARK_SPEED_MAXIMUM
     && PARK_DEFAULT_FRAME_SPEED >= PARK_SPEED_MINIMUM && PARK_DEFAULT_FRAME_SPEED <= PARK_SPEED_MAXIMUM,
     "default speeds within slider range");

@@ -4,19 +4,19 @@
 
 // Скорости вектора и осей u–v — в оборотах в секунду. Диапазон симметричный:
 // вращение в обратную сторону показывает, что преобразование от знака не
-// зависит.
-const PARK_SPEED_MINIMUM = -2.0;
-const PARK_SPEED_MAXIMUM = 2.0;
+// зависит. Больше полуоборота в секунду глаз за проекциями уже не успевает.
+const PARK_SPEED_MINIMUM = -0.5;
+const PARK_SPEED_MAXIMUM = 0.5;
 const PARK_SPEED_STEP = 0.01;
 // Насколько близко надо отпустить ползунок к скорости соседа, чтобы скорости
-// стали равны. 2 % диапазона: пальцем на телефоне ровно в ту же точку не
+// стали равны. 3 % диапазона: пальцем на телефоне ровно в ту же точку не
 // попасть, а случайно прилипнуть с такого расстояния нельзя.
-const PARK_SPEED_SNAP = 0.08;
+const PARK_SPEED_SNAP = 0.03;
 
 const PARK_AMPLITUDE_MAXIMUM = 1.0;
 
-const PARK_DEFAULT_VECTOR_SPEED = 0.5;
-const PARK_DEFAULT_FRAME_SPEED = 0.2;
+const PARK_DEFAULT_VECTOR_SPEED = 0.25;
+const PARK_DEFAULT_FRAME_SPEED = 0.1;
 const PARK_DEFAULT_AMPLITUDE = 0.8;
 
 // Угол в [-π, π): накопленный угол растёт без предела, а синус большого числа

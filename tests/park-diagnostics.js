@@ -48,6 +48,10 @@ function testParkSpeedSnap() {
   check(parkSnapSpeed(0.5 - PARK_SPEED_SNAP, 0.5) === 0.5, "speed exactly at threshold snaps");
   check(parkSnapSpeed(0.3, 0.5) === 0.3, "distant speed stays as set");
   check(parkSnapSpeed(-0.48, -0.5) === -0.5, "snap works for negative speeds");
+  check(parkSnapSpeed(0.02, 0.4) === 0, "speed near zero snaps to zero");
+  check(parkSnapSpeed(-0.02, 0.4) === 0, "negative speed near zero snaps to zero");
+  check(parkSnapSpeed(0.025, 0.04) === 0.04, "nearer of neighbour and zero wins");
+  check(parkSnapSpeed(0.01, 0.03) === 0, "zero wins when it is nearer");
   check(PARK_DEFAULT_VECTOR_SPEED >= PARK_SPEED_MINIMUM && PARK_DEFAULT_VECTOR_SPEED <= PARK_SPEED_MAXIMUM
     && PARK_DEFAULT_FRAME_SPEED >= PARK_SPEED_MINIMUM && PARK_DEFAULT_FRAME_SPEED <= PARK_SPEED_MAXIMUM,
     "default speeds within slider range");

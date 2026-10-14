@@ -50,6 +50,8 @@
           <output id="vector-speed-value" for="vector-speed"></output>
           <div class="slider-track">
             <input type="range" id="vector-speed">
+            <!-- Метка нуля: к ней ползунок тоже прилипает. -->
+            <span class="speed-mark speed-mark-zero" title="Ноль"></span>
             <span class="speed-mark speed-mark-frame" id="vector-speed-mark"
                   title="Скорость осей u–v"></span>
           </div>
@@ -63,13 +65,18 @@
           <output id="frame-speed-value" for="frame-speed"></output>
           <div class="slider-track">
             <input type="range" id="frame-speed">
+            <!-- Метка нуля: к ней ползунок тоже прилипает. -->
+            <span class="speed-mark speed-mark-zero" title="Ноль"></span>
             <span class="speed-mark speed-mark-vector" id="frame-speed-mark"
                   title="Скорость вектора"></span>
           </div>
         </div>
         <button type="button" id="sync" class="wide">Синхронизировать</button>
-        <p class="hint">Отпустите ползунок скорости рядом с меткой — скорости
-          станут равны, и вектор замрёт в осях u–v.</p>
+        <label class="checkbox"><input type="checkbox" id="show-frame" checked>
+          Показывать оси u–v</label>
+        <p class="hint">Отпустите ползунок скорости рядом с цветной меткой —
+          скорости станут равны, и вектор замрёт в осях u–v. Рядом с серой
+          меткой скорость станет нулевой.</p>
       </section>
 
       <section class="card">

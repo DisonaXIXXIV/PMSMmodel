@@ -15,6 +15,9 @@ const park = {
   frameAngle: -Math.PI / 4,
   showAlphaBeta: true,
   showUv: true,
+  // Оси u–v можно убрать целиком, вместе с проекциями на них: тогда на
+  // картинке остаётся только вектор в α–β, с чего объяснение и начинается.
+  showFrame: true,
   paused: false,
 };
 
@@ -53,7 +56,7 @@ function draw() {
 
 function bindControls() {
   for (const id of ["amplitude", "vector-speed", "frame-speed", "sync", "pause", "theme",
-    "show-alpha-beta", "show-uv", "vector-speed-mark", "frame-speed-mark",
+    "show-alpha-beta", "show-uv", "show-frame", "vector-speed-mark", "frame-speed-mark",
     "amplitude-value", "vector-speed-value", "frame-speed-value",
     "read-alpha", "read-beta", "read-u", "read-v", "read-slip"]) {
     controls[id] = document.getElementById(id);
@@ -80,6 +83,12 @@ function bindControls() {
   });
   controls["show-uv"].addEventListener("change", (event) => {
     park.showUv = event.target.checked;
+  });
+  controls["show-frame"].addEventListener("change", (event) => {
+    park.showFrame = event.target.checked;
+    // Без осей проекциям на них не на что ложиться: флажок остаётся в своём
+    // положении, но выключен, и при возврате осей проекции вернутся как были.
+    controls["show-uv"].disabled = !park.showFrame;
   });
 }
 
@@ -184,15 +193,17 @@ function drawScene(ab, uv) {
   let axisLength = 1.18;
   drawAxis(toScreen, 0.0, axisLength, palette.axisAlphaBeta, "α");
   drawAxis(toScreen, Math.PI / 2, axisLength, palette.axisAlphaBeta, "β");
-  drawAxis(toScreen, park.frameAngle, axisLength, palette.axisQ, "u");
-  drawAxis(toScreen, park.frameAngle + Math.PI / 2, axisLength, palette.axisQ, "v");
+  if (park.showFrame) {
+    drawAxis(toScreen, park.frameAngle, axisLength, palette.axisQ, "u");
+    drawAxis(toScreen, park.frameAngle + Math.PI / 2, axisLength, palette.axisQ, "v");
+  }
 
   let tip = [ab.alpha, ab.beta];
   if (park.showAlphaBeta) {
     drawProjection(toScreen, tip, [ab.alpha, 0], palette.componentAlpha);
     drawProjection(toScreen, tip, [0, ab.beta], palette.componentBeta);
   }
-  if (park.showUv) {
+  if (park.showFrame && park.showUv) {
     let c = Math.cos(park.frameAngle);
     let s = Math.sin(park.frameAngle);
     drawProjection(toScreen, tip, [uv.u * c, uv.u * s], palette.componentD);
@@ -224,7 +235,8 @@ function drawAxis(toScreen, angle, length, entry, label) {
 }
 
 // Проекция: штриховой перпендикуляр от конца вектора к оси и цветная стрелка
-// составляющей вдоль оси.
+// составляющей вдоль оси. Стрелка тонкая: главный здесь сам вектор, а толстые
+// составляющие на осях перекрывали бы и оси, и друг друга.
 function drawProjection(toScreen, tip, foot, entry) {
   let [tx, ty] = toScreen(tip[0], tip[1]);
   let [fx, fy] = toScreen(foot[0], foot[1]);
@@ -233,7 +245,7 @@ function drawProjection(toScreen, tip, foot, entry) {
   strokeWeight(1.2);
   line(tx, ty, fx, fy);
   drawingContext.setLineDash([]);
-  drawArrow(toScreen, [0, 0], foot, entry, 4);
+  drawArrow(toScreen, [0, 0], foot, entry, 1.6);
 }
 
 function drawArrow(toScreen, from, to, entry, weight) {

@@ -41,9 +41,22 @@ function parkTransform(alpha, beta, frameAngle) {
   return { u: alpha * c + beta * s, v: -alpha * s + beta * c };
 }
 
-// Отпущенный ползунок встаёт на скорость соседа, если оказался к ней ближе
-// порога. Сравнение с запасом в полшага: значение ползунка приходит строкой и
+// Отпущенный ползунок встаёт на скорость соседа или на ноль, если оказался к
+// ним ближе порога. Ноль — потому что неподвижный вектор или неподвижные оси
+// u–v (тогда это просто повёрнутые α–β) — такие же важные случаи, как равные
+// скорости. Из двух близких целей берётся ближайшая, при равенстве — сосед.
+// Сравнение с запасом в полшага: значение ползунка приходит строкой и
 // округлено до шага, и ровно на пороге оно не должно зависеть от погрешности.
 function parkSnapSpeed(moved, other, threshold = PARK_SPEED_SNAP) {
-  return Math.abs(moved - other) <= threshold + PARK_SPEED_STEP * 0.5 ? other : moved;
+  let limit = threshold + PARK_SPEED_STEP * 0.5;
+  let best = moved;
+  let bestDistance = Infinity;
+  for (const target of [other, 0]) {
+    let distance = Math.abs(moved - target);
+    if (distance <= limit && distance < bestDistance) {
+      best = target;
+      bestDistance = distance;
+    }
+  }
+  return best;
 }

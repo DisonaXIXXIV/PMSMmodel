@@ -11,8 +11,15 @@
 //                    вектор тока, и тогда его поддерживают два ПИ-регулятора.
 //   MODE_OPEN_LOOP — вектор постоянной амплитуды вращается с заданной
 //                    электрической частотой; обратных связей нет вообще.
-//   MODE_VECTOR    — векторное управление: id поддерживается нулевым, iq
-//                    задаётся ползунком либо внешним контуром скорости.
+//   MODE_VECTOR    — векторное управление: id поддерживается постоянным
+//                    (у PMSM — нулём, у асинхронной машины — током
+//                    намагничивания), iq задаётся ползунком либо внешним
+//                    контуром скорости.
+//
+// Машина задаётся паспортом (parameters.machineType). Режимы у обеих одни и
+// те же; различаются только развязка осей и то, откуда берётся угол d–q: у
+// PMSM это угол ротора, у асинхронной машины — угол потока ротора, который
+// оценивает наблюдатель здесь же (updateFluxObserver).
 //
 // Настройки (ControlSettings) заполняет интерфейс, регуляторы их только читают.
 // Обратная связь берётся прямо из MotorState, то есть из состояния модели:
@@ -84,6 +91,9 @@ class ControlSettings {
   showAlphaBetaProjections = false;
   showDqProjections = true;
   lockDqFrame = false;
+  // Вектор потокосцепления ротора — только у асинхронной машины: у PMSM поток
+  // — это сами магниты, и его направление уже показывает полюс N.
+  showFlux = true;
 
   // Копия предела из паспорта машины: панель строит по нему диапазон
   // ползунка задания тока, не заглядывая в MotorParameters.
@@ -124,6 +134,7 @@ class ControlSettings {
     this.showAlphaBetaProjections = false;
     this.showDqProjections = true;
     this.lockDqFrame = false;
+    this.showFlux = true;
 
     this.mode = preservedMode;
     this.manualVectorType = preservedManualVectorType;
@@ -210,6 +221,19 @@ class DriveController {
   activeMode = MODE_MANUAL;
   activeManualVectorType = MANUAL_VECTOR_CURRENT;
 
+  // Наблюдатель потока ротора асинхронной машины: оценка ψr в α–β и её угол.
+  // Регулятор не подглядывает в поток модели — его не измерить и на настоящем
+  // приводе, — а считает его сам по измеренным току и скорости. У PMSM
+  // наблюдатель не нужен и стоит.
+  fluxEstimateAlpha = 0.0;
+  fluxEstimateBeta = 0.0;
+  fluxEstimateAngle = 0.0;
+  // Ток и скорость прошлого вызова наблюдателя: он интегрирует по среднему
+  // за шаг. undefined — прошлого вызова не было, и брать нечего.
+  previousObserverCurrentAlpha;
+  previousObserverCurrentBeta;
+  previousObserverSpeed;
+
   constructor(parameters, settings) {
     this.parameters = parameters;
     this.settings = settings;
@@ -226,6 +250,11 @@ class DriveController {
     if (this.settings.manualVectorType != this.activeManualVectorType) {
       this.changeManualVectorType(this.settings.manualVectorType);
     }
+
+    // Наблюдатель работает во всех режимах, а не только в векторном: тогда к
+    // моменту включения векторного режима он уже знает поток, и первый же шаг
+    // идёт в правильных осях.
+    if (this.isInduction()) this.updateFluxObserver(state, timeStep);
 
     if (this.activeMode == MODE_MANUAL) {
       this.updateManualMode(state, timeStep);
@@ -263,7 +292,9 @@ class DriveController {
       this.settings.manualCurrentBeta - state.currentBeta,
       this.settings.currentKp, this.settings.currentKi, timeStep);
 
-    // При Ld = Lq объект управления в α–β — это R·i + L·di/dt + e = u.
+    // При Ld = Lq объект управления в α–β — это R·i + L·di/dt + e = u. У
+    // асинхронной машины уравнение того же вида, только вместо L стоит
+    // переходная индуктивность, а e — ЭДС от изменения потока ротора.
     // Известную ЭДС вращения подаём вперёд, и регулятору остаётся только
     // RL-цепь. Без этого упреждения при вращении пришлось бы догонять ЭДС
     // интегратором, и ток отставал бы от задания тем сильнее, чем быстрее
@@ -294,11 +325,21 @@ class DriveController {
     this.currentQReference = 0.0;
   }
 
-  // Векторное управление. Ток по оси d держится нулевым — при Ld = Lq он не
-  // создаёт момента, а только греет обмотку. Момент задаётся одним iq: либо
-  // напрямую ползунком, либо контуром скорости.
+  // Векторное управление. Момент задаётся одним iq: либо напрямую ползунком,
+  // либо контуром скорости. Ток по оси d у PMSM держится нулевым — при
+  // Ld = Lq он не создаёт момента, а только греет обмотку. У асинхронной
+  // машины он и есть поток: id = ψr*/Lm намагничивает ротор, и без него
+  // момента не будет вовсе.
   updateVectorMode(state, timeStep) {
-    this.currentDReference = 0.0;
+    let induction = this.isInduction();
+    this.currentDReference = induction
+      ? this.parameters.ratedRotorFlux / this.parameters.magnetizingInductance
+      : 0.0;
+    // Ток намагничивания занимает часть предельного тока, и на момент
+    // остаётся только остаток.
+    let torqueCurrentLimit = sqrt(max(this.parameters.maximumCurrent * this.parameters.maximumCurrent
+      - this.currentDReference * this.currentDReference, 0.0));
+
     // Внешний контур скорости. Его выход — задание тока iq, то есть
     // фактически задание момента, поэтому ограничение выхода предельным током
     // машины и есть ограничение момента при разгоне. Возврат интегратора
@@ -306,38 +347,46 @@ class DriveController {
     if (this.settings.speedLoopEnabled) {
       let speedError = radiansFromRpm(this.settings.speedReferenceRpm) - state.mechanicalSpeed;
       let unsaturatedCurrent = this.settings.speedKp * speedError + this.speedIntegrator;
-      this.currentQReference = clampMagnitude(unsaturatedCurrent, this.parameters.maximumCurrent);
+      this.currentQReference = clampMagnitude(unsaturatedCurrent, torqueCurrentLimit);
       let speedTrackingGain = this.settings.speedKi > 0.0
         ? constrain(this.settings.speedKi / max(this.settings.speedKp, 0.01), 1.0, 500.0)
         : 0.0;
       this.speedIntegrator += this.settings.speedKi * speedError * timeStep
         + speedTrackingGain * (this.currentQReference - unsaturatedCurrent) * timeStep;
-      this.speedIntegrator = constrain(this.speedIntegrator, -this.parameters.maximumCurrent, this.parameters.maximumCurrent);
+      this.speedIntegrator = constrain(this.speedIntegrator, -torqueCurrentLimit, torqueCurrentLimit);
     } else {
       this.currentQReference = this.settings.currentQReference;
     }
 
+    // Оси d–q и токи в них. У PMSM угол — это угол ротора, и токи id, iq
+    // модель уже посчитала. У асинхронной машины оси ставятся по оценке
+    // потока, и ток в них переводится здесь — по измеренным iα, iβ.
+    let angle = induction ? this.fluxEstimateAngle : state.electricalAngle;
+    let cosine = cos(angle);
+    let sine = sin(angle);
+    let currentD = induction ? cosine * state.currentAlpha + sine * state.currentBeta : state.currentD;
+    let currentQ = induction ? -sine * state.currentAlpha + cosine * state.currentBeta : state.currentQ;
+
     // Внутренний контур тока — в вращающейся системе d–q. Здесь задания
     // постоянны, поэтому ПИ-регулятор выводит ошибку в нуль полностью, чего в
     // неподвижной системе не добиться.
-    let errorD = this.currentDReference - state.currentD;
-    let errorQ = this.currentQReference - state.currentQ;
+    let errorD = this.currentDReference - currentD;
+    let errorQ = this.currentQReference - currentQ;
     let regulatorD = this.currentDController.calculate(errorD, this.settings.currentKp, this.settings.currentKi, timeStep);
     let regulatorQ = this.currentQController.calculate(errorQ, this.settings.currentKp, this.settings.currentKi, timeStep);
 
     // Развязка осей: к выходу регуляторов добавляются те самые перекрёстные
     // слагаемые из уравнений машины, но с обратным знаком. После этого каждая
     // ось ведёт себя как отдельная RL-цепь, и контуры тока перестают мешать
-    // друг другу. В слагаемом по оси q сидит и противо-ЭДС магнитов ωэ·ψf —
-    // её регулятору тоже незачем догонять интегратором.
-    let unsaturatedD = regulatorD - state.electricalSpeed * this.parameters.inductanceQ * state.currentQ;
-    let unsaturatedQ = regulatorQ + state.electricalSpeed
-      * (this.parameters.inductanceD * state.currentD + this.parameters.magnetFlux);
+    // друг другу.
+    let feedForward = induction
+      ? this.inductionFeedForward(state, currentD, currentQ)
+      : this.synchronousFeedForward(state);
+    let unsaturatedD = regulatorD + feedForward.d;
+    let unsaturatedQ = regulatorQ + feedForward.q;
 
     // Обратное преобразование Парка: напряжение считалось в d–q, а инвертор и
     // модель принимают его в неподвижной системе α–β.
-    let cosine = cos(state.electricalAngle);
-    let sine = sin(state.electricalAngle);
     let unsaturatedAlpha = cosine * unsaturatedD - sine * unsaturatedQ;
     let unsaturatedBeta = sine * unsaturatedD + cosine * unsaturatedQ;
 
@@ -355,16 +404,106 @@ class DriveController {
       this.settings.currentKp, this.settings.currentKi, timeStep);
   }
 
+  // Развязка PMSM: в оси d вращение добавляет ωэ·Lq·iq, в оси q — вычитает
+  // ωэ·(Ld·id + ψf). В слагаемом по оси q сидит и противо-ЭДС магнитов ωэ·ψf —
+  // её регулятору тоже незачем догонять интегратором.
+  synchronousFeedForward(state) {
+    return {
+      d: -state.electricalSpeed * this.parameters.inductanceQ * state.currentQ,
+      q: state.electricalSpeed
+        * (this.parameters.inductanceD * state.currentD + this.parameters.magnetFlux),
+    };
+  }
+
+  // Развязка асинхронной машины в осях потока, вращающихся со скоростью ωψ:
+  //   ud = Rs·id + L′·did/dt − ωψ·L′·iq + (Lm/Lr)·dψr/dt
+  //   uq = Rs·iq + L′·diq/dt + ωψ·L′·id + ωψ·(Lm/Lr)·ψr
+  // Всё, кроме Rs·i + L′·di/dt, подаётся вперёд — по оценке потока, а не по
+  // потоку модели. Скорость поля ωψ — скорость ротора плюс скольжение
+  // Lm·iq/(Tr·ψr); пока поток ещё не набран, делитель ограничен снизу, иначе
+  // первый же iq при пустом роторе дал бы бесконечное скольжение.
+  inductionFeedForward(state, currentD, currentQ) {
+    let parameters = this.parameters;
+    let flux = Math.hypot(this.fluxEstimateAlpha, this.fluxEstimateBeta);
+    let slip = parameters.magnetizingInductance * currentQ
+      / (parameters.rotorTimeConstant * max(flux, 0.05 * parameters.ratedRotorFlux));
+    let fieldSpeed = state.electricalSpeed + slip;
+    let fluxRate = (parameters.magnetizingInductance * currentD - flux) / parameters.rotorTimeConstant;
+    return {
+      d: -fieldSpeed * parameters.transientInductance * currentQ
+        + parameters.rotorCoupling * fluxRate,
+      q: fieldSpeed * (parameters.transientInductance * currentD
+        + parameters.rotorCoupling * flux),
+    };
+  }
+
+  // Наблюдатель потока — «токовая модель»: то же уравнение ротора, что и в
+  // модели машины, dψ/dt = a·ψ + (Lm/Tr)·i с a = −1/Tr + j·ωэ, но по
+  // измеренным току статора и скорости. Его решение и есть оценка ψr; при
+  // точно известных Rr и Lm она сходится к настоящему потоку.
+  //
+  // Шаг Эйлера здесь не годится, хотя Tr больше шага в тысячи раз: поток
+  // вращается, а Эйлер на каждом шаге чуть раскручивает вращающийся вектор
+  // наружу. Затухание 1/Tr это уравновешивает лишь на завышенной длине, и при
+  // 1000 об/мин оценка выходила на 6 % больше настоящего потока. Поэтому
+  // уравнение решается за шаг точно — поворот и затухание экспонентой, — а
+  // ток берётся средним за шаг, от прошлого вызова до этого: оценка относится
+  // к тому же мгновению, что и измеренный ток.
+  updateFluxObserver(state, timeStep) {
+    let parameters = this.parameters;
+    if (this.previousObserverCurrentAlpha === undefined) {
+      this.previousObserverCurrentAlpha = state.currentAlpha;
+      this.previousObserverCurrentBeta = state.currentBeta;
+      this.previousObserverSpeed = state.electricalSpeed;
+    }
+    let rotorTimeConstant = parameters.rotorTimeConstant;
+    let speed = 0.5 * (state.electricalSpeed + this.previousObserverSpeed);
+    let inputAlpha = 0.5 * (state.currentAlpha + this.previousObserverCurrentAlpha)
+      * parameters.magnetizingInductance / rotorTimeConstant;
+    let inputBeta = 0.5 * (state.currentBeta + this.previousObserverCurrentBeta)
+      * parameters.magnetizingInductance / rotorTimeConstant;
+
+    // e^{a·dt} и (e^{a·dt} − 1)/a как комплексные числа.
+    let decay = Math.exp(-timeStep / rotorTimeConstant);
+    let rotationX = decay * cos(speed * timeStep);
+    let rotationY = decay * sin(speed * timeStep);
+    let aX = -1.0 / rotorTimeConstant;
+    let aY = speed;
+    let aSquared = aX * aX + aY * aY;
+    let gainX = ((rotationX - 1.0) * aX + rotationY * aY) / aSquared;
+    let gainY = (rotationY * aX - (rotationX - 1.0) * aY) / aSquared;
+
+    let alpha = this.fluxEstimateAlpha;
+    let beta = this.fluxEstimateBeta;
+    this.fluxEstimateAlpha = rotationX * alpha - rotationY * beta
+      + gainX * inputAlpha - gainY * inputBeta;
+    this.fluxEstimateBeta = rotationY * alpha + rotationX * beta
+      + gainY * inputAlpha + gainX * inputBeta;
+    this.previousObserverCurrentAlpha = state.currentAlpha;
+    this.previousObserverCurrentBeta = state.currentBeta;
+    this.previousObserverSpeed = state.electricalSpeed;
+
+    // При почти нулевом потоке направление — шум; угол остаётся прежним.
+    if (Math.hypot(this.fluxEstimateAlpha, this.fluxEstimateBeta) > 1e-4) {
+      this.fluxEstimateAngle = Math.atan2(this.fluxEstimateBeta, this.fluxEstimateAlpha);
+    }
+  }
+
+  isInduction() {
+    return this.parameters.machineType === MACHINE_INDUCTION;
+  }
+
   // Переход в другой режим. Интеграторы сбрасываются: накопленное в прошлом
   // режиме к новому заданию отношения не имеет. Фаза разомкнутого режима
-  // подхватывается от текущего положения ротора — тогда включение режима не
-  // даёт рывка, вектор напряжения продолжает с того места, где стоит ротор.
+  // подхватывается от оси d — у PMSM это положение ротора, у асинхронной
+  // машины направление потока. Тогда включение режима не даёт рывка: вектор
+  // напряжения продолжает с того места, где стоит поле.
   changeMode(newMode, state) {
     this.resetRegulators();
     this.activeMode = newMode;
     this.activeManualVectorType = this.settings.manualVectorType;
     if (newMode == MODE_OPEN_LOOP) {
-      this.openLoopAngle = state.electricalAngle;
+      this.openLoopAngle = state.fieldAngle;
     }
   }
 
@@ -412,7 +551,8 @@ class DriveController {
   }
 
   // Сброс по кнопке «Сброс» или клавише R. Обнуляется вся память управления —
-  // интеграторы, угол разомкнутого режима, ручные задания, — но не выбор
+  // интеграторы, угол разомкнутого режима, ручные задания, оценка потока
+  // (машина после сброса обесточена), — но не выбор
   // режима и не тип ручного вектора: на demo-странице одного режима сброс не
   // должен выводить страницу из её режима.
   reset() {
@@ -425,6 +565,12 @@ class DriveController {
     this.settings.manualVoltageBeta = 0.0;
     this.currentDReference = 0.0;
     this.currentQReference = 0.0;
+    this.fluxEstimateAlpha = 0.0;
+    this.fluxEstimateBeta = 0.0;
+    this.fluxEstimateAngle = 0.0;
+    this.previousObserverCurrentAlpha = undefined;
+    this.previousObserverCurrentBeta = undefined;
+    this.previousObserverSpeed = undefined;
     this.activeMode = this.settings.mode;
     this.activeManualVectorType = this.settings.manualVectorType;
   }

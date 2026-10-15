@@ -35,6 +35,12 @@ function runSimulationDiagnostics() {
   testSpeedLoopStep();
   testNegativeSpeedLoopStep();
   testCurrentAntiWindup();
+  testInductionNoLoadStart();
+  testInductionSteadyStateTorque();
+  testInductionParameterControls();
+  testInductionManualCurrentStep();
+  testInductionVectorControl();
+  testInductionSpeedLoop();
   testGuiParameterReset();
   testMotorParameterControls();
   testDemoProfiles();
@@ -241,6 +247,210 @@ function testNegativeSpeedLoopStep() {
   }
 }
 
+// Асинхронная машина: пуск прямо от вращающегося напряжения, без регуляторов.
+// На холостом ходу она обязана выйти почти на синхронную скорость — 25 Гц при
+// p = 1 это 1500 об/мин, — отставая только на скольжение от трения. Поток при
+// этом устанавливается около U/ω: так машина и намагничивается от сети.
+function testInductionNoLoadStart() {
+  let testParameters = new InductionMotorParameters();
+  let testMotor = new InductionMotorModel(testParameters);
+  let voltage = 155.0;
+  let frequency = 25.0;
+  let timeStep = 0.0001;
+  for (let step = 0; step < 30000; step++) {
+    let angle = TWO_PI * frequency * step * timeStep;
+    testMotor.step(voltage * cos(angle), voltage * sin(angle), 0.0, timeStep);
+  }
+  let rpm = rpmFromRadians(testMotor.state.mechanicalSpeed);
+  diagnosticNear("An induction motor runs up to nearly synchronous speed", rpm, 1497.0, 3.0);
+  diagnosticTrue("An induction motor runs below synchronous speed", rpm < 1500.0);
+  diagnosticNear("An induction motor on the mains carries the flux U/omega",
+    Math.hypot(testMotor.state.fluxAlpha, testMotor.state.fluxBeta),
+    voltage / (TWO_PI * frequency), 0.06);
+}
+
+// Момент при заданном скольжении — против схемы замещения. Скорость держит
+// огромный момент инерции, напряжение 311 В, 50 Гц; за 1,5 с (десять Tr)
+// переходный процесс затухает, и момент модели должен совпасть с моментом,
+// посчитанным из комплексных уравнений установившегося режима:
+//   U = (Rs + jωs·Ls)·is + jωs·Lm·ir,  0 = jωsl·Lm·is + (Rr + jωsl·Lr)·ir.
+// Два паспорта — по умолчанию и с другими Rr, Lm, Lσ, Rs, — так проверяется,
+// что каждый ползунок паспорта доходит до уравнений.
+function testInductionSteadyStateTorque() {
+  let complex = (re, im) => ({ re, im });
+  let add = (a, b) => complex(a.re + b.re, a.im + b.im);
+  let multiply = (a, b) => complex(a.re * b.re - a.im * b.im, a.re * b.im + a.im * b.re);
+  let divide = (a, b) => {
+    let denominator = b.re * b.re + b.im * b.im;
+    return complex((a.re * b.re + a.im * b.im) / denominator,
+      (a.im * b.re - a.re * b.im) / denominator);
+  };
+
+  for (const passport of [{},
+    { rotorResistance: 2.0, magnetizingInductance: 0.25, leakageInductance: 0.006,
+      statorResistance: 0.6 }]) {
+    let testParameters = new InductionMotorParameters();
+    Object.assign(testParameters, passport);
+    testParameters.inertia = 1.0e9;
+    let testMotor = new InductionMotorModel(testParameters);
+    let supplySpeed = TWO_PI * 50.0;
+    let rotorSpeed = 0.95 * supplySpeed;
+    testMotor.state.mechanicalSpeed = rotorSpeed;
+    let timeStep = 0.0001;
+    for (let step = 0; step < 15000; step++) {
+      let angle = supplySpeed * step * timeStep;
+      testMotor.step(311.0 * cos(angle), 311.0 * sin(angle), 0.0, timeStep);
+    }
+
+    let slipSpeed = supplySpeed - rotorSpeed;
+    let lm = testParameters.magnetizingInductance;
+    let lr = testParameters.rotorInductance;
+    let ls = testParameters.statorInductance;
+    // ir = −jωsl·Lm·is / (Rr + jωsl·Lr), подставляется в уравнение статора.
+    let rotorRatio = divide(complex(0.0, -slipSpeed * lm),
+      complex(testParameters.rotorResistance, slipSpeed * lr));
+    let impedance = add(complex(testParameters.statorResistance, supplySpeed * ls),
+      multiply(complex(0.0, supplySpeed * lm), rotorRatio));
+    let statorCurrent = divide(complex(311.0, 0.0), impedance);
+    let rotorCurrent = multiply(rotorRatio, statorCurrent);
+    let rotorFlux = add(multiply(complex(lm, 0.0), statorCurrent),
+      multiply(complex(lr, 0.0), rotorCurrent));
+    let expectedTorque = 1.5 * testParameters.polePairs * (lm / lr)
+      * (rotorFlux.re * statorCurrent.im - rotorFlux.im * statorCurrent.re);
+
+    let label = Object.keys(passport).length === 0 ? "the default passport" : "a changed passport";
+    diagnosticNear("The induction torque at 5 % slip matches the equivalent circuit for "
+      + label, testMotor.state.electromagneticTorque, expectedTorque,
+      0.005 * Math.abs(expectedTorque));
+    diagnosticNear("The induction slip speed matches the supply for " + label,
+      testMotor.state.slipSpeed, slipSpeed, 0.01 * slipSpeed);
+  }
+}
+
+// Паспорт асинхронной машины из панели. Lm проверяется точно: при постоянном
+// напряжении на неподвижной машине ток уходит к U/Rs, а поток ротора — к
+// Lm·U/Rs, и момента нет — поток параллелен току. Момент инерции — по
+// ускорению при одинаковом пуске. Остальное проверила схема замещения выше.
+function testInductionParameterControls() {
+  for (const magnetizing of [0.15, 0.3]) {
+    let testParameters = new InductionMotorParameters();
+    testParameters.magnetizingInductance = magnetizing;
+    let testMotor = new InductionMotorModel(testParameters);
+    for (let step = 0; step < 40000; step++) {
+      testMotor.step(6.0, 0.0, 0.0, 0.0001);
+    }
+    diagnosticNear("A magnetizing inductance of " + magnetizing * 1000.0
+      + " mH sets the rotor flux of a DC current", testMotor.state.fluxAlpha,
+      magnetizing * 6.0 / testParameters.statorResistance, 0.002);
+    diagnosticNear("A DC current leaves the induction rotor standing",
+      testMotor.state.mechanicalSpeed, 0.0, 1e-9);
+  }
+
+  let speeds = [0.1, 0.2].map((inertia) => {
+    let testParameters = new InductionMotorParameters();
+    testParameters.inertia = inertia;
+    let testMotor = new InductionMotorModel(testParameters);
+    for (let step = 0; step < 500; step++) {
+      let angle = TWO_PI * 25.0 * step * 0.0001;
+      testMotor.step(155.0 * cos(angle), 155.0 * sin(angle), 0.0, 0.0001);
+    }
+    return testMotor.state.mechanicalSpeed;
+  });
+  diagnosticNear("Twice the induction inertia halves the acceleration",
+    speeds[1] / speeds[0], 0.5, 0.02);
+
+  let resetParameters = new InductionMotorParameters();
+  resetParameters.statorResistance = 4.0;
+  resetParameters.rotorResistance = 3.0;
+  resetParameters.magnetizingInductance = 0.4;
+  resetParameters.leakageInductance = 0.01;
+  resetParameters.inertia = 0.6;
+  resetParameters.resetTunableParameters();
+  diagnosticTrue("Reset restores the induction passport",
+    resetParameters.statorResistance === 1.2 && resetParameters.rotorResistance === 1.0
+    && resetParameters.magnetizingInductance === 0.15
+    && resetParameters.leakageInductance === 0.003 && resetParameters.inertia === 0.1);
+}
+
+// Ручное задание тока у асинхронной машины: тот же регулятор, те же
+// коэффициенты. Паспорт подобран так, что переходная индуктивность близка к
+// индуктивности PMSM, а ЭДС потока ротора подаётся вперёд, — значит, и ток
+// выходит к заданию так же быстро.
+function testInductionManualCurrentStep() {
+  let testParameters = new InductionMotorParameters();
+  let testSettings = new ControlSettings(testParameters);
+  let testMotor = new InductionMotorModel(testParameters);
+  let testController = new DriveController(testParameters, testSettings);
+  testSettings.mode = MODE_MANUAL;
+  testController.setManualCurrent(10.0, 0.0);
+  runDiagnosticSteps(testMotor, testController, testSettings, 250);
+  diagnosticNear("Induction manual alpha current step", testMotor.state.currentAlpha, 10.0, 0.05);
+  diagnosticNear("Induction manual beta cross error", testMotor.state.currentBeta, 0.0, 0.02);
+}
+
+// Векторное управление асинхронной машиной. Сначала ротор намагничивается:
+// id = ψr*/Lm, и за секунду (6,5·Tr) поток выходит на номинал. Затем задание
+// iq даёт момент 1,5·p·(Lm/Lr)·ψr·iq. Наблюдатель всё это время должен
+// совпадать с настоящим потоком — сравнивается в одно и то же мгновение, до
+// шага модели, иначе разница была бы просто поворотом поля за шаг.
+function testInductionVectorControl() {
+  let testParameters = new InductionMotorParameters();
+  let testSettings = new ControlSettings(testParameters);
+  let testMotor = new InductionMotorModel(testParameters);
+  let testController = new DriveController(testParameters, testSettings);
+  testController.setMode(MODE_VECTOR, testMotor.state);
+  runDiagnosticSteps(testMotor, testController, testSettings, 10000);
+  let flux = Math.hypot(testMotor.state.fluxAlpha, testMotor.state.fluxBeta);
+  diagnosticNear("Vector control magnetizes the rotor to the rated flux",
+    flux, testParameters.ratedRotorFlux, 0.01);
+  diagnosticNear("Vector control holds the magnetizing current",
+    testMotor.state.currentD, testParameters.ratedRotorFlux / testParameters.magnetizingInductance, 0.02);
+
+  testSettings.currentQReference = 10.0;
+  runDiagnosticSteps(testMotor, testController, testSettings, 1000);
+  flux = Math.hypot(testMotor.state.fluxAlpha, testMotor.state.fluxBeta);
+  diagnosticNear("Vector control iq regulation of the induction motor",
+    testMotor.state.currentQ, 10.0, 0.05);
+  diagnosticNear("The induction torque follows iq",
+    testMotor.state.electromagneticTorque,
+    1.5 * testParameters.polePairs * testParameters.rotorCoupling * flux * 10.0, 0.05);
+  diagnosticTrue("The rotor turns with an induction torque",
+    testMotor.state.mechanicalSpeed > 1.0);
+
+  testController.update(testMotor.state, 0.0001);
+  diagnosticLessThan("The flux observer tracks the rotor flux angle",
+    Math.abs(signedAngle(testController.fluxEstimateAngle - testMotor.state.fieldAngle)), 0.001);
+  diagnosticNear("The flux observer tracks the rotor flux magnitude",
+    Math.hypot(testController.fluxEstimateAlpha, testController.fluxEstimateBeta), flux, 0.002);
+}
+
+// Контур скорости асинхронной машины с теми же коэффициентами, что у PMSM.
+// Момент на ампер у неё меньше (1,47 против 1,875 Н·м/А), и контур выходит
+// чуть медленнее, но без лишнего перерегулирования. Пуск — из обесточенной
+// машины: первые десятые доли секунды уходят на намагничивание.
+function testInductionSpeedLoop() {
+  let testParameters = new InductionMotorParameters();
+  let testSettings = new ControlSettings(testParameters);
+  let testMotor = new InductionMotorModel(testParameters);
+  let testController = new DriveController(testParameters, testSettings);
+  testController.setMode(MODE_VECTOR, testMotor.state);
+  testSettings.speedLoopEnabled = true;
+  testSettings.speedReferenceRpm = 1000.0;
+  let maximumRpm = 0.0;
+  for (let step = 0; step < 20000; step++) {
+    runDiagnosticStep(testMotor, testController, testSettings);
+    maximumRpm = max(maximumRpm, rpmFromRadians(testMotor.state.mechanicalSpeed));
+  }
+  diagnosticNear("Induction speed loop steady state",
+    rpmFromRadians(testMotor.state.mechanicalSpeed), 1000.0, 10.0);
+  diagnosticLessThan("Induction speed loop overshoot", maximumRpm, 1050.0);
+
+  testSettings.loadTorque = 20.0;
+  runDiagnosticSteps(testMotor, testController, testSettings, 10000);
+  diagnosticNear("Induction speed load rejection",
+    rpmFromRadians(testMotor.state.mechanicalSpeed), 1000.0, 10.0);
+}
+
 // Сброс параметров. Проверяется и то, что сбрасывается, и то, что
 // сохраняется: режим и тип ручного вектора должны уцелеть, иначе кнопка
 // «Сброс» выводила бы demo-страницу из её режима.
@@ -259,6 +469,7 @@ function testGuiParameterReset() {
   testSettings.speedLoopEnabled = true;
   testSettings.showVoltage = false;
   testSettings.lockDqFrame = true;
+  testSettings.showFlux = false;
 
   testSettings.resetGuiParametersPreservingMode();
   diagnosticNear("Reset restores load", testSettings.loadTorque, 0.0, 0.0001);
@@ -270,7 +481,7 @@ function testGuiParameterReset() {
   diagnosticNear("Reset clears manual voltage beta", testSettings.manualVoltageBeta, 0.0, 0.0001);
   if (testSettings.mode == MODE_VECTOR && !testSettings.speedLoopEnabled
       && testSettings.manualVectorType == MANUAL_VECTOR_VOLTAGE
-      && testSettings.showVoltage && !testSettings.lockDqFrame) {
+      && testSettings.showVoltage && !testSettings.lockDqFrame && testSettings.showFlux) {
     console.log("PASS: Reset preserves control selections and restores checkboxes");
   } else {
     diagnosticFailures++;

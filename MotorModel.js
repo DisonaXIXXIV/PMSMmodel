@@ -24,6 +24,12 @@
 // Модель ничего не знает ни об интерфейсе, ни о способе управления: единственный
 // способ на неё повлиять — вызвать step() с напряжением и нагрузкой.
 
+// Тип машины. Им помечен паспорт (machineType), и по нему регуляторы и
+// отрисовка выбирают свою ветку: уравнения синхронной и асинхронной машины
+// разные, а входы, выходы и MotorState у моделей общие.
+const MACHINE_PMSM = "pmsm";
+const MACHINE_INDUCTION = "induction";
+
 // Значения паспорта по умолчанию для тех четырёх величин, которые меняются из
 // панели. Собраны отдельно, потому что нужны дважды: при создании машины и при
 // сбросе, который возвращает их на место вместе с остальными параметрами
@@ -45,6 +51,8 @@ const DEFAULT_INERTIA = 0.1;
 // отрисовка, и все читают его поля при каждом обращении. Поэтому изменение
 // ползунком действует со следующего же шага — пересобирать ничего не нужно.
 class MotorParameters {
+  machineType = MACHINE_PMSM;
+
   // Электрическая часть. Сопротивление и индуктивность вместе задают
   // постоянную времени обмотки L/R: при значениях по умолчанию это 5 мс.
   // ψf = 1,25 Вб при p = 1 даёт моментную постоянную 1,5·p·ψf = 1,875 Н·м/А;
@@ -125,6 +133,20 @@ class MotorState {
   electromagneticTorque;
   frictionTorque;
   loadTorque;
+
+  // Угол системы d–q (электрический) и вектор потокосцепления, по которому она
+  // ориентирована. У PMSM это ось магнитов: угол совпадает с electricalAngle,
+  // а поток — ψf вдоль d. У асинхронной машины ось d смотрит по потоку ротора,
+  // который опережает ротор на угол скольжения, — поэтому угол отдельный.
+  // Отрисовка и регуляторы берут d–q отсюда, не разбирая, какая машина.
+  fieldAngle;
+  fluxAlpha;
+  fluxBeta;
+  // Ток ротора (у PMSM его нет — нули) и скольжение: на сколько
+  // электрическая скорость поля обгоняет электрическую скорость ротора.
+  rotorCurrentAlpha;
+  rotorCurrentBeta;
+  slipSpeed;
 }
 
 // Правая часть системы: по одному значению на каждую интегрируемую
@@ -270,20 +292,8 @@ class PMSMModel {
       + (this.parameters.inductanceD - this.parameters.inductanceQ) * currentD * currentQ);
   }
 
-  // Трение: вязкое плюс сухое. Первая ветвь — режим покоя: если вал почти
-  // стоит и приложенного момента не хватает, чтобы преодолеть сухое трение,
-  // трение в точности уравновешивает приложенный момент и вал остаётся на
-  // месте. Без этой ветви машина бесконечно ползла бы от любого сколь угодно
-  // малого момента. Вне покоя знак сухого трения сглажен тангенсом, иначе
-  // разрыв в правой части сбивал бы метод Рунге — Кутты.
   frictionTorque(mechanicalSpeed, torqueBeforeFriction) {
-    if (abs(mechanicalSpeed) < 0.015
-        && abs(torqueBeforeFriction) <= this.parameters.coulombFriction) {
-      return torqueBeforeFriction;
-    }
-    return this.parameters.viscousFriction * mechanicalSpeed
-      + this.parameters.coulombFriction
-      * Math.tanh(mechanicalSpeed / this.parameters.frictionSmoothingSpeed);
+    return mechanicalFrictionTorque(this.parameters, mechanicalSpeed, torqueBeforeFriction);
   }
 
   // Пересчёт всего, что показывается и читается регуляторами, из четырёх
@@ -316,6 +326,15 @@ class PMSMModel {
       this.state.electromagneticTorque - loadTorque,
     );
     this.state.loadTorque = loadTorque;
+
+    // Система d–q синхронной машины — это ось магнитов, и поток по ней —
+    // сами магниты. Скольжения и тока ротора нет.
+    this.state.fieldAngle = this.state.electricalAngle;
+    this.state.fluxAlpha = this.parameters.magnetFlux * cosine;
+    this.state.fluxBeta = this.parameters.magnetFlux * sine;
+    this.state.rotorCurrentAlpha = 0.0;
+    this.state.rotorCurrentBeta = 0.0;
+    this.state.slipSpeed = 0.0;
   }
 
   // Признак того, что решение не развалилось. Проверяются только
@@ -326,4 +345,22 @@ class PMSMModel {
       && finiteValue(this.state.mechanicalAngle)
       && finiteValue(this.state.mechanicalSpeed);
   }
+}
+
+// Трение: вязкое плюс сухое. Первая ветвь — режим покоя: если вал почти
+// стоит и приложенного момента не хватает, чтобы преодолеть сухое трение,
+// трение в точности уравновешивает приложенный момент и вал остаётся на
+// месте. Без этой ветви машина бесконечно ползла бы от любого сколь угодно
+// малого момента. Вне покоя знак сухого трения сглажен тангенсом, иначе
+// разрыв в правой части сбивал бы метод Рунге — Кутты.
+//
+// Механика у обеих машин одна, поэтому функция общая, а не метод модели.
+function mechanicalFrictionTorque(parameters, mechanicalSpeed, torqueBeforeFriction) {
+  if (abs(mechanicalSpeed) < 0.015
+      && abs(torqueBeforeFriction) <= parameters.coulombFriction) {
+    return torqueBeforeFriction;
+  }
+  return parameters.viscousFriction * mechanicalSpeed
+    + parameters.coulombFriction
+    * Math.tanh(mechanicalSpeed / parameters.frictionSmoothingSpeed);
 }

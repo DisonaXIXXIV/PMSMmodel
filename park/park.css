@@ -327,3 +327,33 @@ input[type="range"]::-moz-range-thumb {
 .back a {
   color: var(--hint-text);
 }
+
+.version {
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--motor-note);
+}
+
+.version:empty {
+  display: none;
+}
+
+/* Кнопка «обновить до …»: мелкий кегль строки версии, янтарный акцент и
+   подчёркивание, как в модели. Отступы расширяют её до пальца. */
+.version .update {
+  min-height: 0;
+  margin: -8px 0;
+  padding: 8px 4px;
+  border-radius: 0;
+  background: none;
+  color: var(--paused-mark);
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.version .update:disabled {
+  cursor: default;
+  text-decoration: none;
+}

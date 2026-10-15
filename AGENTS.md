@@ -103,7 +103,7 @@ CSS-переменные, которые `Theme.js` выставляет из к
 атрибуту `data-layout`; решение о компоновке — только `resolveLayoutMode`.
 
 **Страница `park/`** (преобразование Парка) самостоятельна: из корня берёт
-только `Theme.js`, её файлы не подключаются к пяти `index.html` и не входят в
+только `Theme.js`, `version.js` и `Updater.js`, её файлы не подключаются к пяти `index.html` и не входят в
 `run-diagnostics.js` — у неё свой `tests/park-diagnostics.js`. Цвета — тоже в
 `Theme.js` (`componentAlpha`, `componentBeta` и общие ключи осей и векторов).
 

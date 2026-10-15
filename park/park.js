@@ -32,6 +32,31 @@ function setup() {
   pixelDensity(Math.min(window.devicePixelRatio || 1, 2));
   bindControls();
   refreshControls();
+  showVersion();
+}
+
+// Версия и обновление — как в модели (Updater.js): вернулся на вкладку —
+// страница обновляется сама, а пока на неё смотрят, рядом с версией
+// появляется кнопка. Без version.js (страница открыта из файла) строки нет.
+function showVersion() {
+  let line = document.getElementById("version");
+  if (typeof PMSM_VERSION !== "string") return;
+  line.textContent = PMSM_VERSION;
+  let button = null;
+  startVersionWatch((version, reload) => {
+    if (!button) {
+      button = document.createElement("button");
+      button.type = "button";
+      button.className = "update";
+      line.append(" ", button);
+    }
+    button.textContent = "обновить до " + version;
+    button.onclick = () => {
+      button.disabled = true;
+      button.textContent = "обновляется…";
+      reload();
+    };
+  });
 }
 
 function windowResized() {

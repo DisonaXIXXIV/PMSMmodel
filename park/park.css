@@ -188,6 +188,9 @@ input[type="range"] {
   margin: 0;
   background: transparent;
   cursor: pointer;
+  /* Вертикальное движение пальца по ползунку — это прокрутка панели, а не
+     перетаскивание ручки (см. bindSlider в park.js). */
+  touch-action: pan-y;
 }
 
 input[type="range"]::-webkit-slider-runnable-track {

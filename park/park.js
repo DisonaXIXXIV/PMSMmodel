@@ -87,12 +87,9 @@ function bindControls() {
   configureSlider(controls["frame-speed"], PARK_SPEED_MINIMUM, PARK_SPEED_MAXIMUM,
     PARK_SPEED_STEP, park.frameSpeed);
 
-  controls["amplitude"].addEventListener("input", (event) => {
-    park.amplitude = Number(event.target.value);
-    refreshControls();
-  });
-  bindSpeedSlider(controls["vector-speed"], "vectorSpeed", "frameSpeed");
-  bindSpeedSlider(controls["frame-speed"], "frameSpeed", "vectorSpeed");
+  bindSlider(controls["amplitude"], "amplitude", null);
+  bindSlider(controls["vector-speed"], "vectorSpeed", "frameSpeed");
+  bindSlider(controls["frame-speed"], "frameSpeed", "vectorSpeed");
 
   controls["sync"].addEventListener("click", synchroniseFrame);
   controls["pause"].addEventListener("click", togglePause);
@@ -124,20 +121,40 @@ function configureSlider(input, minimum, maximum, step, value) {
   input.value = value;
 }
 
-// Ползунок скорости. Прилипание к соседу срабатывает, только когда ползунок
-// отпустили после перетаскивания: со стрелками клавиатуры оно не дало бы
+// Ползунок, который меняет поле park[field]. У ползунков скорости есть сосед
+// (otherField): прилипание к нему и к нулю срабатывает, только когда ползунок
+// отпустили после перетаскивания, — со стрелками клавиатуры оно не дало бы
 // поставить скорость в двух шагах от соседней.
-function bindSpeedSlider(input, field, otherField) {
+//
+// На телефоне палец, которым листают панель, часто ложится на ползунок, и ручка
+// прыгает под него. Вертикальное движение park.css отдаёт прокрутке
+// (touch-action: pan-y), но первое касание браузер успевает принять за нажатие
+// на ползунок. Когда он понимает, что это прокрутка, он отменяет жест
+// (pointercancel) — тогда значение возвращается к тому, что было до касания.
+function bindSlider(input, field, otherField) {
   let dragging = false;
-  input.addEventListener("pointerdown", () => { dragging = true; });
+  let valueBeforeTouch = null;
+  input.addEventListener("pointerdown", () => {
+    dragging = true;
+    valueBeforeTouch = park[field];
+  });
+  input.addEventListener("pointercancel", () => {
+    dragging = false;
+    if (valueBeforeTouch === null) return;
+    park[field] = valueBeforeTouch;
+    input.value = valueBeforeTouch;
+    valueBeforeTouch = null;
+    refreshControls();
+  });
   input.addEventListener("input", () => {
     park[field] = Number(input.value);
     refreshControls();
   });
   input.addEventListener("change", () => {
     let value = Number(input.value);
-    if (dragging) value = parkSnapSpeed(value, park[otherField]);
+    if (dragging && otherField !== null) value = parkSnapSpeed(value, park[otherField]);
     dragging = false;
+    valueBeforeTouch = null;
     park[field] = value;
     input.value = value;
     refreshControls();

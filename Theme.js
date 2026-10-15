@@ -40,6 +40,12 @@ const DARK_PALETTE = {
   rotorPoleLabel: [229, 235, 242],
   shaftOuter: [19, 24, 32],
   shaftInner: [151, 164, 183],
+  // Ротор асинхронной машины: пакет стали и алюминиевые стержни клетки.
+  // Значок тока в стержне тёмный — по светлому металлу он читается в обеих
+  // темах, и с цветными значками фаз статора его не спутать.
+  rotorCore: [58, 66, 80],
+  rotorBar: [200, 146, 86],
+  rotorBarMark: [40, 26, 12],
 
   // -- оси, проекции и векторы ----------------------------------------------
   axisAlphaBeta: [112, 127, 147, 190],
@@ -65,6 +71,9 @@ const DARK_PALETTE = {
   vectorVoltage: [247, 205, 74],
   vectorVoltageReference: [247, 205, 74, 105],
   vectorEmf: [236, 102, 190],
+  // Поток ротора асинхронной машины — почти белый: остальные цвета уже
+  // заняты током, напряжением, ЭДС и осями.
+  vectorFlux: [232, 236, 244],
   torqueMotor: [75, 205, 126, 225],
   torqueLoad: [241, 146, 71, 225],
 
@@ -158,6 +167,9 @@ const LIGHT_PALETTE = {
   rotorPoleLabel: [250, 251, 253],
   shaftOuter: [70, 80, 96],
   shaftInner: [232, 236, 243],
+  rotorCore: [170, 178, 191],
+  rotorBar: [190, 124, 60],
+  rotorBarMark: [40, 24, 10],
 
   axisAlphaBeta: [104, 117, 138, 190],
   axisD: [196, 110, 20, 225],
@@ -175,6 +187,7 @@ const LIGHT_PALETTE = {
   vectorVoltage: [168, 120, 8],
   vectorVoltageReference: [168, 120, 8, 125],
   vectorEmf: [186, 40, 140],
+  vectorFlux: [36, 44, 58],
   torqueMotor: [26, 138, 78, 225],
   torqueLoad: [198, 104, 20, 225],
 

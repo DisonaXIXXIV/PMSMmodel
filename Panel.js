@@ -14,7 +14,7 @@
 //     Home/End, Esc на шторке. У рисованной панели этого не было вовсе;
 //   * экранный диктор видит подписи, а не пустое полотно.
 //
-// Разметку строит этот файл, а не пять index.html: страницы отличаются только
+// Разметку строит этот файл, а не шесть index.html: страницы отличаются только
 // профилем, и повторять в каждой одну и ту же панель значило бы править их все
 // при любом изменении. Поэтому в разметке страницы лежит лишь полотно, а панель
 // и надписи создаются здесь — ровно так же, как раньше создавались виджеты.
@@ -129,8 +129,9 @@ function panelSliderDescriptions(parameters) {
 //
 // Параметров машины список не спрашивает: пределы здесь не производные от
 // паспорта, а сами по себе — это те значения, между которыми паспорт и
-// двигают.
-function motorParameterSliderDescriptions() {
+// двигают. Спрашивает только тип машины: паспорта у них разные.
+function motorParameterSliderDescriptions(machineType = MACHINE_PMSM) {
+  if (machineType === MACHINE_INDUCTION) return inductionParameterSliderDescriptions();
   return [
     { setting: "statorResistance", label: "Сопротивление обмотки", unit: " Ом",
       minimum: 0.1, maximum: 5.0, step: 0.05, decimals: 2, target: "parameters" },
@@ -147,6 +148,48 @@ function motorParameterSliderDescriptions() {
     { setting: "inertia", label: "Момент инерции", unit: " кг·м²",
       minimum: 0.01, maximum: 1.0, step: 0.005, decimals: 3, target: "parameters" },
   ];
+}
+
+// Паспорт асинхронной машины. Пределы взяты из тех же соображений, что у
+// PMSM: самая быстрая комбинация (Lσ = 1 мГн при Lm = 50 мГн даёт L′ ≈ 2 мГн,
+// при 5 + 5 Ом) остаётся вдвое медленнее шага модели, а самая медленная
+// ротора (Tr = 0,5 с при 0,1 Ом с лишним) ещё видна глазом.
+function inductionParameterSliderDescriptions() {
+  return [
+    { setting: "statorResistance", label: "Сопротивление статора", unit: " Ом",
+      minimum: 0.1, maximum: 5.0, step: 0.05, decimals: 2, target: "parameters" },
+    // Сопротивление ротора — главный параметр асинхронной машины: от него
+    // зависят скольжение под нагрузкой, пусковой момент и постоянная Tr.
+    { setting: "rotorResistance", label: "Сопротивление ротора", unit: " Ом",
+      minimum: 0.1, maximum: 5.0, step: 0.05, decimals: 2, target: "parameters" },
+    { setting: "magnetizingInductance", label: "Индуктивность намагничивания", unit: " мГн",
+      minimum: 50.0, maximum: 500.0, step: 5.0, decimals: 0, scale: 1000.0,
+      target: "parameters" },
+    { setting: "leakageInductance", label: "Индуктивность рассеяния", unit: " мГн",
+      minimum: 1.0, maximum: 15.0, step: 0.5, decimals: 1, scale: 1000.0,
+      target: "parameters" },
+    { setting: "inertia", label: "Момент инерции", unit: " кг·м²",
+      minimum: 0.01, maximum: 1.0, step: 0.005, decimals: 3, target: "parameters" },
+  ];
+}
+
+// Подсказка под паспортом: паспортные значения и оговорка о регуляторах.
+// Коэффициенты контура скорости настроены для паспортного момента инерции и
+// пропорциональны ему (см. ControlSettings): изменив J, их приходится менять
+// следом, и без этой оговорки разъехавшийся переходный процесс выглядел бы
+// ошибкой модели.
+function motorPassportHint(machineType) {
+  let passport = machineType === MACHINE_INDUCTION
+    ? "Паспорт: Rs 1,20 Ом, Rr 1,00 Ом, Lm 150 мГн, Lσ 3,0 мГн, 0,100 кг·м²."
+    : "Паспорт: 1,20 Ом, 6,0 мГн, 1,25 Вб, 0,100 кг·м².";
+  return passport + " Коэффициенты регуляторов настроены под эти значения и при"
+    + " других требуют пересчёта.";
+}
+
+// Есть ли орган у этой машины. machines — список типов; без него орган
+// общий. Нужно одному флажку — вектору потока ротора, которого у PMSM нет.
+function controlForMachine(description, machineType) {
+  return description.machines === undefined || description.machines.includes(machineType);
 }
 
 // Объект, которым управляет орган: настройки интерфейса или паспорт машины.
@@ -196,6 +239,7 @@ const VISUALISATION_CHECKBOX_DESCRIPTIONS = [
   { setting: "showAlphaBetaProjections", label: "Проекции iα, iβ" },
   { setting: "showDqProjections", label: "Проекции id, iq" },
   { setting: "lockDqFrame", label: "Зафиксировать оси d–q" },
+  { setting: "showFlux", label: "Вектор потока ψr", machines: [MACHINE_INDUCTION] },
 ];
 
 // Орган управления показывается, если его режим совпадает с выбранным и если
@@ -345,13 +389,13 @@ class MachineStage {
     help.addEventListener("click", openHelp);
     caption.append(help);
     this.title = element("h1", "stage__title",
-      "Синхронная машина с постоянными магнитами");
+      machineDescription(this.parameters.machineType).title);
     // Версия — время последнего коммита из version.js (его пишет git-хук).
     // Без этого файла страница просто обходится без строки версии.
     this.version = element("p", "stage__version",
       typeof PMSM_VERSION === "string" ? PMSM_VERSION : "");
     this.frameName = element("p", "stage__subtitle");
-    this.note = element("p", "stage__note", this.windingNote());
+    this.note = element("p", "stage__note", "");
     caption.append(this.title, this.version, this.frameName, this.note);
     stage.insertBefore(caption, canvasHost);
 
@@ -382,10 +426,16 @@ class MachineStage {
   }
 
   // Примечание об обмотке: потокосцепление магнитов и как читать обозначения
-  // сторон катушек.
-  windingNote() {
+  // сторон катушек. У асинхронной машины вместо ψf — скольжение: оно и есть
+  // её главная величина, и меняется на ходу.
+  windingNote(state) {
+    let marks = "ток: • — из плоскости, × — в плоскость";
+    if (this.parameters.machineType === MACHINE_INDUCTION) {
+      return "s = " + formatSlip(state) + "; 18 пазов, q = 3; клетка — "
+        + ROTOR_BAR_COUNT + " стержней;  " + marks;
+    }
     return "ψf = " + nf(this.parameters.magnetFlux, 1, 2)
-      + " Вб; 18 пазов, q = 3;  ток фаз: • — из плоскости, × — в плоскость";
+      + " Вб; 18 пазов, q = 3;  " + marks.replace("ток:", "ток фаз:");
   }
 
   // Легенда: что означает каждый цвет. Цвета берутся из палитры переменными
@@ -398,6 +448,9 @@ class MachineStage {
       ["torque-motor", "Mдв"],
       ["torque-load", "Mнагр"],
     ];
+    if (this.parameters.machineType === MACHINE_INDUCTION) {
+      entries.splice(3, 0, ["vector-flux", "поток ψr"]);
+    }
     for (const [variable, label] of entries) {
       let item = element("li", "legend__item");
       let marker = element("span", "legend__marker");
@@ -456,9 +509,10 @@ class MachineStage {
     setText(this.readoutValues.voltage.value,
       nf(sqrt(state.voltageAlpha * state.voltageAlpha
         + state.voltageBeta * state.voltageBeta), 1, 1) + " В");
-    // ψf меняется ползунком паспорта, поэтому примечание обновляется вместе
-    // с показаниями, а не пишется один раз при построении.
-    setText(this.note, this.windingNote());
+    // ψf меняется ползунком паспорта, а скольжение — само, поэтому
+    // примечание обновляется вместе с показаниями, а не пишется один раз при
+    // построении.
+    setText(this.note, this.windingNote(state));
     setHidden(this.pausedMark, !paused);
   }
 }
@@ -504,6 +558,7 @@ class ControlPanel {
   checkboxes = [];
   themeCheckbox;
   modeButtons = [];
+  machineButtons = [];
   manualVectorButtons = [];
   tabButtons = [];
   toolbarButtons = {};
@@ -520,13 +575,14 @@ class ControlPanel {
     this.controller = controller;
     this.profile = profile === undefined ? demoProfile(PROFILE_FULL) : profile;
     this.commands = commands;
+    this.machineType = parameters.machineType;
   }
 
   // -- построение разметки ---------------------------------------------------
 
   build(host, toolbarSlot) {
     this.root = element("aside", "panel");
-    this.root.setAttribute("aria-label", this.profile.panelTitle);
+    this.root.setAttribute("aria-label", machinePanelTitle(this.profile, this.machineType));
     this.column = element("div", "panel__column");
 
     this.sheet = element("div", "sheet");
@@ -559,7 +615,7 @@ class ControlPanel {
   }
 
   buildContent() {
-    let title = element("h2", "panel__title", this.profile.panelTitle);
+    let title = element("h2", "panel__title", machinePanelTitle(this.profile, this.machineType));
     this.tabs = this.buildTabs();
     this.statusCard = this.buildStatusCard();
     // Вкладка «Управление» целиком: карточки «Машина», «Режим управления» и
@@ -623,6 +679,14 @@ class ControlPanel {
     // и режимом не управляет, поэтому стоит не среди его органов, а рядом с
     // теми числами, которые она и меняет.
     this.machineCard = panelCard("МАШИНА");
+    // Выбор машины. Нажатие открывает ту же страницу с другой машиной (см.
+    // Presets.js), поэтому выбранной кнопка становится уже на новой странице.
+    // На странице, которая сама назвала машину, выбора нет.
+    if (this.commands.selectMachine !== undefined) {
+      this.machineCard.append(this.buildButtonRow("Тип машины",
+        MACHINE_DESCRIPTIONS.map((item) => item.label), this.machineButtons,
+        (index) => this.commands.selectMachine(MACHINE_DESCRIPTIONS[index].type)));
+    }
     for (const description of descriptions.filter((item) => item.common)) {
       this.loadSliderRow = this.buildSlider(description);
       this.machineCard.append(this.loadSliderRow);
@@ -685,22 +749,17 @@ class ControlPanel {
     // электрическую постоянную времени), потокосцепление магнитов (моментную
     // постоянную и противо-ЭДС) и момент инерции (механическую).
     this.motorCard = panelDisclosureCard("ПАРАМЕТРЫ ДВИГАТЕЛЯ");
-    for (const description of motorParameterSliderDescriptions()) {
+    for (const description of motorParameterSliderDescriptions(this.machineType)) {
       this.motorCard.append(this.buildSlider(description));
     }
-    // Коэффициенты контура скорости настроены для паспортного момента
-    // инерции и пропорциональны ему (см. ControlSettings): изменив J, их
-    // приходится менять следом, и без этой оговорки разъехавшийся переходный
-    // процесс выглядел бы ошибкой модели.
-    this.motorCard.append(element("p", "hint",
-      "Паспорт: 1,20 Ом, 6,0 мГн, 1,25 Вб, 0,100 кг·м². Коэффициенты регуляторов"
-      + " настроены под эти значения и при других требуют пересчёта."));
+    this.motorCard.append(element("p", "hint", motorPassportHint(this.machineType)));
     this.controlGroup.append(this.motorCard);
   }
 
   buildVisualGroup() {
     let list = element("div", "checkboxes");
     for (const description of VISUALISATION_CHECKBOX_DESCRIPTIONS) {
+      if (!controlForMachine(description, this.machineType)) continue;
       list.append(this.buildCheckbox(description, true));
     }
     // Тема живёт не в настройках модели, а в Theme.js, поэтому этот флажок
@@ -936,6 +995,10 @@ class ControlPanel {
     for (let index = 0; index < this.modeButtons.length; index++) {
       this.selectButton(this.modeButtons[index], this.settings.mode === index);
     }
+    for (let index = 0; index < this.machineButtons.length; index++) {
+      this.selectButton(this.machineButtons[index],
+        MACHINE_DESCRIPTIONS[index].type === this.machineType);
+    }
     for (let index = 0; index < this.manualVectorButtons.length; index++) {
       this.selectButton(this.manualVectorButtons[index],
         this.settings.manualVectorType === index);
@@ -1013,6 +1076,15 @@ class ControlPanel {
         + state.currentBeta * state.currentBeta), 1, 1) + " А");
     setText(this.statusValues.torque, nf(state.electromagneticTorque, 1, 2) + " Н·м");
   }
+}
+
+// Скольжение в процентах: на сколько ротор отстаёт от поля, отнесённое к
+// скорости поля. Пока поле стоит (ротор не намагничен или частота нулевая),
+// скольжение не определено.
+function formatSlip(state) {
+  let fieldSpeed = state.electricalSpeed + state.slipSpeed;
+  if (Math.abs(fieldSpeed) < 1.0) return "—";
+  return nf(100.0 * state.slipSpeed / fieldSpeed, 1, 1) + " %";
 }
 
 // Скорость со знаком, но без «−0»: у нуля знака нет.

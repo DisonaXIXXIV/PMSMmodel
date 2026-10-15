@@ -22,6 +22,7 @@
 // undefined, и обработчики событий, которые p5 может вызвать раньше,
 // проверяют это явно (см. pointerReleased).
 let activeProfile;
+let activeMachineType;
 let motorParameters;
 let controlSettings;
 let motor;
@@ -60,7 +61,8 @@ const MAXIMUM_PIXEL_DENSITY = 2.0;
 // самотестирование, и как устроены разметка и полотно.
 function setup() {
   activeProfile = resolveDemoProfile();
-  document.title = activeProfile.documentTitle;
+  activeMachineType = requestedMachineType();
+  document.title = machineDocumentTitle(activeProfile, activeMachineType);
 
   // Те же тесты, что и npm test, но прямо в браузере: полотно не создаётся,
   // цикл кадров останавливается, итог печатается на странице и в консоль.
@@ -77,10 +79,13 @@ function setup() {
   // регуляторов, потому что и те, и другие держат на них ссылку, а профиль
   // применяется до создания регуляторов и панели — они читают режим в своих
   // конструкторах.
-  motorParameters = new MotorParameters();
+  // Машина — синхронная или асинхронная — выбирается один раз, при открытии
+  // страницы (см. Presets.js): дальше всё работает с тем паспортом и той
+  // моделью, что созданы здесь.
+  motorParameters = createMotorParameters(activeMachineType);
   controlSettings = new ControlSettings(motorParameters);
   applyDemoProfile(activeProfile, controlSettings);
-  motor = new PMSMModel(motorParameters);
+  motor = createMotorModel(motorParameters);
   driveController = new DriveController(motorParameters, controlSettings);
   simulator = new FixedStepSimulator(motor, driveController, controlSettings);
   motorView = new MotorView(motorParameters, controlSettings);
@@ -141,7 +146,7 @@ function buildInterface() {
   const stage = document.getElementById("stage");
   const canvasHost = document.getElementById("app");
   machineStage = new MachineStage(motorParameters, controlSettings);
-  helpDialog = new HelpDialog();
+  helpDialog = new HelpDialog(activeMachineType);
   helpDialog.build(document.body);
   machineStage.build(stage, canvasHost, () => helpDialog.open());
 
@@ -155,6 +160,12 @@ function buildInterface() {
       // модели: иначе картинка зафиксируется на положении, которого при нажатии
       // ещё не было.
       referenceFrameChanged: () => motorView.updateReferenceFrame(motor.state),
+      // Переключатель машины открывает ту же страницу с другим ?machine. На
+      // странице, которая сама назвала машину, его нет.
+      selectMachine: machineFixedByPage() ? undefined : (type) => {
+        if (type === activeMachineType) return;
+        window.location.search = machineSwitchSearch(window.location.search, type);
+      },
     });
   controlPanel.build(document.body, machineStage.toolbarSlot);
   controlPanel.setLayout(activeLayoutMode);

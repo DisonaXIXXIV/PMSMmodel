@@ -101,3 +101,82 @@ function applyDemoProfile(profile, settings) {
   settings.mode = profile.mode;
   settings.manualVectorType = profile.manualVectorType;
 }
+
+// -- выбор машины -------------------------------------------------------------
+//
+// Машина выбирается независимо от профиля: любой режим показывается на любой
+// из двух машин. Источник выбора — тот же, что у профиля, и в том же порядке:
+// страница induction/ объявляет window.PMSM_MACHINE, остальные принимают
+// ?machine=induction. Без того и другого — PMSM, как было всегда.
+//
+// Переключатель в панели не меняет машину на ходу, а открывает тот же адрес
+// с другим ?machine. Смена машины — это всё равно полный сброс: другой
+// паспорт, другие органы в панели, другие подписи. Перезагрузка делает его
+// честно, без шанса забыть в старой машине какую-нибудь ссылку.
+
+// Порядок — это и порядок кнопок переключателя: номер кнопки — номер записи.
+const MACHINE_DESCRIPTIONS = [
+  { type: MACHINE_PMSM, label: "Синхронная", shortName: "PMSM",
+    title: "Синхронная машина с постоянными магнитами" },
+  { type: MACHINE_INDUCTION, label: "Асинхронная", shortName: "АД",
+    title: "Асинхронная машина с короткозамкнутым ротором" },
+];
+
+function machineDescription(type) {
+  let found = MACHINE_DESCRIPTIONS.find((item) => item.type === type);
+  return found === undefined ? MACHINE_DESCRIPTIONS[0] : found;
+}
+
+// Машину назвала сама страница — переключателя на ней нет, как нет выбора
+// режима на странице режима.
+function machineFixedByPage() {
+  return typeof window !== "undefined" && typeof window.PMSM_MACHINE === "string";
+}
+
+// Неизвестное имя машины, как и неизвестный профиль, открывает PMSM.
+function requestedMachineType() {
+  let requested = null;
+  if (machineFixedByPage()) {
+    requested = window.PMSM_MACHINE;
+  } else if (typeof window !== "undefined" && window.location) {
+    requested = new URLSearchParams(window.location.search).get("machine");
+  }
+  return machineDescription(requested).type;
+}
+
+// Адрес той же страницы с другой машиной. Остальные параметры (?mode,
+// ?layout) сохраняются; PMSM — машина по умолчанию, и для неё параметр
+// убирается совсем, чтобы ссылка осталась такой же, как была до переключателя.
+function machineSwitchSearch(search, type) {
+  let parameters = new URLSearchParams(search);
+  if (type === MACHINE_PMSM) {
+    parameters.delete("machine");
+  } else {
+    parameters.set("machine", type);
+  }
+  let text = parameters.toString();
+  return text === "" ? "" : "?" + text;
+}
+
+function createMotorParameters(type) {
+  return type === MACHINE_INDUCTION ? new InductionMotorParameters() : new MotorParameters();
+}
+
+function createMotorModel(parameters) {
+  return parameters.machineType === MACHINE_INDUCTION
+    ? new InductionMotorModel(parameters)
+    : new PMSMModel(parameters);
+}
+
+// Заголовки профилей написаны для PMSM. У асинхронной машины в них меняется
+// только название машины — режим тот же.
+function machineDocumentTitle(profile, type) {
+  if (type !== MACHINE_INDUCTION) return profile.documentTitle;
+  return profile.documentTitle.replace("PMSM", "АД")
+    .replace("синхронной машины", "асинхронной машины");
+}
+
+function machinePanelTitle(profile, type) {
+  if (type !== MACHINE_INDUCTION) return profile.panelTitle;
+  return profile.panelTitle.replace("PMSM", "АД");
+}

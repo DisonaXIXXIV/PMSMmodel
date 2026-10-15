@@ -54,6 +54,10 @@ function runSimulationDiagnostics() {
   testVoltageDisplayScale();
   testHelpContents();
   testReferenceFrameLock();
+  testMachineSelection();
+  testRotorBarCurrents();
+  testFluxVectorDisplay();
+  testInductionReferenceFrameLock();
   testVersionStamp();
   testVersionParsing();
 
@@ -924,63 +928,71 @@ function testModeDescriptions() {
 // себя не выдаст: панель будет писать в несуществующее поле, а регуляторы —
 // читать нетронутое старое. Поэтому имена сверяются с обоими объектами целиком.
 function testPanelControlDescriptions() {
-  let testParameters = new MotorParameters();
-  let testSettings = new ControlSettings(testParameters);
-  let sliders = panelSliderDescriptions(testParameters)
-    .concat(motorParameterSliderDescriptions());
-  let descriptions = sliders
-    .concat(PANEL_CHECKBOX_DESCRIPTIONS, VISUALISATION_CHECKBOX_DESCRIPTIONS);
   let failures = 0;
-  let claimed = [];
+  let count = 0;
+  // Панель строится под одну машину: свой паспорт и только свои флажки.
+  // Поэтому и сверяется каждая машина со своим паспортом отдельно.
+  for (const machine of MACHINE_DESCRIPTIONS) {
+    let testParameters = createMotorParameters(machine.type);
+    let testSettings = new ControlSettings(testParameters);
+    let sliders = panelSliderDescriptions(testParameters)
+      .concat(motorParameterSliderDescriptions(machine.type));
+    let descriptions = sliders
+      .concat(PANEL_CHECKBOX_DESCRIPTIONS, VISUALISATION_CHECKBOX_DESCRIPTIONS)
+      .filter((description) => controlForMachine(description, machine.type));
+    let claimed = [];
+    count += descriptions.length;
 
-  for (const description of descriptions) {
-    let target = controlTarget(description, testSettings, testParameters);
-    if (!(description.setting in target)) {
-      failures++;
-      console.log("FAIL: control " + description.setting + " names no such setting");
+    for (const description of descriptions) {
+      let target = controlTarget(description, testSettings, testParameters);
+      if (!(description.setting in target)) {
+        failures++;
+        console.log("FAIL: control " + description.setting + " names no such setting");
+      }
+      if (claimed.includes(description.setting)) {
+        failures++;
+        console.log("FAIL: setting " + description.setting + " is claimed by two controls");
+      }
+      claimed.push(description.setting);
+      if (!description.label) {
+        failures++;
+        console.log("FAIL: control " + description.setting + " has no label");
+      }
     }
-    if (claimed.includes(description.setting)) {
-      failures++;
-      console.log("FAIL: setting " + description.setting + " is claimed by two controls");
-    }
-    claimed.push(description.setting);
-    if (!description.label) {
-      failures++;
-      console.log("FAIL: control " + description.setting + " has no label");
-    }
-  }
 
-  // Диапазон ползунка обязан вмещать значение по умолчанию. Иначе первый же
-  // проход «настройки → разметка» подтянул бы значение к краю диапазона, и
-  // настройка изменилась бы сама, без единого действия человека. Сравнивается
-  // показанное значение: пределы ползунка заданы в тех же единицах, что и он.
-  for (const slider of sliders) {
-    let target = controlTarget(slider, testSettings, testParameters);
-    let value = sliderDisplayValue(slider, target[slider.setting]);
-    if (value < slider.minimum || value > slider.maximum) {
-      failures++;
-      console.log("FAIL: the default of " + slider.setting + " (" + value
-        + ") is outside its slider range " + slider.minimum + "…" + slider.maximum);
+    // Диапазон ползунка обязан вмещать значение по умолчанию. Иначе первый же
+    // проход «настройки → разметка» подтянул бы значение к краю диапазона, и
+    // настройка изменилась бы сама, без единого действия человека. Сравнивается
+    // показанное значение: пределы ползунка заданы в тех же единицах, что и он.
+    for (const slider of sliders) {
+      let target = controlTarget(slider, testSettings, testParameters);
+      let value = sliderDisplayValue(slider, target[slider.setting]);
+      if (value < slider.minimum || value > slider.maximum) {
+        failures++;
+        console.log("FAIL: the default of " + slider.setting + " (" + value
+          + ") is outside its slider range " + slider.minimum + "…" + slider.maximum);
+      }
+      if (!(slider.step > 0.0)) {
+        failures++;
+        console.log("FAIL: slider " + slider.setting + " has no usable step");
+      }
+      // Перевод в единицы ползунка и обратно обязан возвращать то же число:
+      // иначе один проход «поле → разметка → поле» сдвигал бы настройку сам.
+      let restored = sliderStoredValue(slider, value);
+      if (Math.abs(restored - target[slider.setting]) > 1e-9) {
+        failures++;
+        console.log("FAIL: slider " + slider.setting + " does not survive its own scale ("
+          + target[slider.setting] + " → " + value + " → " + restored + ")");
+      }
     }
-    if (!(slider.step > 0.0)) {
-      failures++;
-      console.log("FAIL: slider " + slider.setting + " has no usable step");
-    }
-    // Перевод в единицы ползунка и обратно обязан возвращать то же число:
-    // иначе один проход «поле → разметка → поле» сдвигал бы настройку сам.
-    let restored = sliderStoredValue(slider, value);
-    if (Math.abs(restored - target[slider.setting]) > 1e-9) {
-      failures++;
-      console.log("FAIL: slider " + slider.setting + " does not survive its own scale ("
-        + target[slider.setting] + " → " + value + " → " + restored + ")");
-    }
+
   }
 
   if (failures > 0) {
     diagnosticFailures += failures;
     return;
   }
-  console.log("PASS: " + descriptions.length + " panel controls match the settings");
+  console.log("PASS: " + count + " panel controls of both machines match the settings");
 }
 
 // Какие органы управления нужны текущему режиму. Раньше это решала сама
@@ -1114,23 +1126,33 @@ function testVoltageDisplayScale() {
 // Проверяется то, что расходится незаметно: каждый режим назван так же, как
 // на переключателе, упомянуты клавиши и все параметры двигателя.
 function testHelpContents() {
-  let text = helpPlainText();
-  let modes = HELP_SECTIONS[0].items.map((item) => item[0]);
-  for (const description of MODE_DESCRIPTIONS) {
-    diagnosticTrue("The help describes the " + description.label + " mode",
-      modes.includes(description.label));
+  for (const machine of MACHINE_DESCRIPTIONS) {
+    let sections = helpSections(machine.type);
+    let text = helpPlainText(machine.type);
+    let modes = sections[0].items.map((item) => item[0]);
+    for (const description of MODE_DESCRIPTIONS) {
+      diagnosticTrue("The " + machine.type + " help describes the " + description.label + " mode",
+        modes.includes(description.label));
+    }
+    for (const key of ["Пробел", "R", "T"]) {
+      diagnosticTrue("The " + machine.type + " help mentions the " + key + " key",
+        sections.some((section) => section.items.some(
+          (item) => Array.isArray(item) && item[0] === key)));
+    }
+    // Параметры двигателя названы в справке не подписями ползунков, а своими
+    // словами, поэтому сверяется ключевое слово каждой подписи.
+    for (const description of motorParameterSliderDescriptions(machine.type)) {
+      let keyword = description.label.split(" ")[0].toLowerCase();
+      diagnosticTrue("The " + machine.type + " help mentions the motor parameter "
+        + description.setting, text.toLowerCase().includes(keyword.slice(0, 7)));
+    }
   }
-  for (const key of ["Пробел", "R", "T"]) {
-    diagnosticTrue("The help mentions the " + key + " key",
-      HELP_SECTIONS.some((section) => section.items.some(
-        (item) => Array.isArray(item) && item[0] === key)));
-  }
-  // Параметры двигателя названы в справке не подписями ползунков, а своими
-  // словами, поэтому сверяется ключевое слово каждой подписи.
-  for (const description of motorParameterSliderDescriptions()) {
-    let keyword = description.label.split(" ")[0].toLowerCase();
-    diagnosticTrue("The help mentions the motor parameter " + description.setting,
-      text.toLowerCase().includes(keyword.slice(0, 7)));
+  // Различаются в паспорте и второе слово: «сопротивление статора» и «ротора»,
+  // «индуктивность намагничивания» и «рассеяния».
+  let inductionText = helpPlainText(MACHINE_INDUCTION).toLowerCase();
+  for (const word of ["статора", "ротора", "намагничивания", "рассеяния"]) {
+    diagnosticTrue("The induction help names the " + word + " parameter",
+      inductionText.includes(word));
   }
 }
 
@@ -1172,6 +1194,122 @@ function testReferenceFrameLock() {
   }
   diagnosticTrue("The return to the stationary frame finishes (" + frames + " frames)",
     testView.viewRotation === 0.0 && frames < 400);
+}
+
+// Выбор машины (Presets.js). В Node нет ни окна, ни адреса, и выбор должен
+// падать на PMSM — так же, как неизвестное имя в ссылке. Переключатель
+// меняет в адресе только ?machine, а для PMSM убирает его совсем.
+function testMachineSelection() {
+  diagnosticTrue("Without a page the machine is the PMSM", requestedMachineType() === MACHINE_PMSM);
+  diagnosticTrue("An unknown machine falls back to the PMSM",
+    machineDescription("нет-такой-машины").type === MACHINE_PMSM);
+  diagnosticTrue("The machine buttons follow the machine types",
+    MACHINE_DESCRIPTIONS.map((item) => item.type).join() === [MACHINE_PMSM, MACHINE_INDUCTION].join());
+  diagnosticTrue("Switching to the induction motor keeps the other parameters",
+    machineSwitchSearch("?mode=vector&layout=compact", MACHINE_INDUCTION)
+      === "?mode=vector&layout=compact&machine=induction");
+  diagnosticTrue("Switching back to the PMSM drops the machine parameter",
+    machineSwitchSearch("?machine=induction&mode=vector", MACHINE_PMSM) === "?mode=vector");
+  diagnosticTrue("Switching back to the PMSM may leave an empty address",
+    machineSwitchSearch("?machine=induction", MACHINE_PMSM) === "");
+
+  for (const machine of MACHINE_DESCRIPTIONS) {
+    let parameters = createMotorParameters(machine.type);
+    let model = createMotorModel(parameters);
+    diagnosticTrue("The " + machine.type + " passport names its machine",
+      parameters.machineType === machine.type);
+    diagnosticTrue("The " + machine.type + " model is built on its passport",
+      model.parameters === parameters
+      && (machine.type === MACHINE_INDUCTION) === (model instanceof InductionMotorModel));
+  }
+
+  let full = DEMO_PROFILES[PROFILE_FULL];
+  diagnosticTrue("The PMSM titles stay as they were",
+    machineDocumentTitle(full, MACHINE_PMSM) === full.documentTitle
+    && machinePanelTitle(full, MACHINE_PMSM) === full.panelTitle);
+  diagnosticTrue("The induction titles name the induction motor",
+    machineDocumentTitle(full, MACHINE_INDUCTION) === "АД — визуальная модель асинхронной машины"
+    && machinePanelTitle(full, MACHINE_INDUCTION) === "Управление АД");
+  for (const name of Object.keys(DEMO_PROFILES)) {
+    diagnosticTrue("The induction title of profile " + name + " drops PMSM",
+      !machineDocumentTitle(DEMO_PROFILES[name], MACHINE_INDUCTION).includes("PMSM")
+      && !machinePanelTitle(DEMO_PROFILES[name], MACHINE_INDUCTION).includes("PMSM"));
+  }
+}
+
+// Ток в стержнях клетки. Знак — тот же, что у статора: вектор тока вдоль α
+// даёт точку на 90° (там стоит зона A+, ось фазы A — на α) и крест на 270°, а
+// на самой оси вектора ток в стержне нулевой. Сверяется и со статором
+// напрямую: при одном и том же векторе тока стержень под серединой зоны A+
+// показывает то же направление, что и её паз.
+function testRotorBarCurrents() {
+  let maximum = 25.0;
+  diagnosticTrue("A rotor current along alpha comes out of the screen at 90 degrees",
+    rotorBarCurrentMark(HALF_PI, 10.0, 0.0, maximum).direction === 1);
+  diagnosticTrue("A rotor current along alpha goes into the screen at 270 degrees",
+    rotorBarCurrentMark(PI + HALF_PI, 10.0, 0.0, maximum).direction === -1);
+  diagnosticTrue("The bar on the axis of the rotor current carries none",
+    rotorBarCurrentMark(0.0, 10.0, 0.0, maximum).direction === 0);
+  diagnosticTrue("A rotor current along beta comes out of the screen at 180 degrees",
+    rotorBarCurrentMark(PI, 0.0, 10.0, maximum).direction === 1);
+  let slot = 1;
+  let statorMark = statorSlotCurrentMark(slot, phaseCurrentsFromAlphaBeta(10.0, 0.0), maximum);
+  let barMark = rotorBarCurrentMark(statorSlotAngle(slot), 10.0, 0.0, maximum);
+  diagnosticTrue("Stator slots and rotor bars share the current sign convention",
+    statorMark.direction === barMark.direction && barMark.direction !== 0);
+  diagnosticNear("The bars are spaced evenly around the rotor",
+    rotorBarAngle(1, 0.3) - rotorBarAngle(0, 0.3), TWO_PI / ROTOR_BAR_COUNT, 1e-12);
+}
+
+// Вектор потока ротора рисуется только у асинхронной машины и только при
+// включённом флажке. Отрисовку перехватываем, как в testVoltageDisplayScale.
+function testFluxVectorDisplay() {
+  let stubbedColor = typeof color === "undefined";
+  if (stubbedColor) globalThis.color = () => null;
+  for (const machine of MACHINE_DESCRIPTIONS) {
+    let testParameters = createMotorParameters(machine.type);
+    let testSettings = new ControlSettings(testParameters);
+    let testView = new MotorView(testParameters, testSettings);
+    testView.updateGeometry({ x: 0.0, y: 0.0, w: 640.0, h: 720.0 });
+    let drawn = {};
+    testView.drawPhysicalVector = (alpha, beta, maximum, maximumLength, vectorColor, label) => {
+      drawn[label] = { alpha, beta, maximum };
+    };
+    let state = new MotorState();
+    state.fluxAlpha = 0.6;
+    state.fluxBeta = 0.8;
+    testView.drawFluxVector(state);
+    let induction = machine.type === MACHINE_INDUCTION;
+    diagnosticTrue("The " + machine.type + (induction ? " draws" : " does not draw")
+      + " the rotor flux vector", (drawn["ψr"] !== undefined) === induction);
+    if (induction) {
+      diagnosticTrue("The rotor flux vector is the model's flux",
+        drawn["ψr"].alpha === 0.6 && drawn["ψr"].beta === 0.8);
+      drawn = {};
+      testSettings.showFlux = false;
+      testView.drawFluxVector(state);
+      diagnosticTrue("The flux checkbox hides the rotor flux vector", drawn["ψr"] === undefined);
+    }
+  }
+  if (stubbedColor) delete globalThis.color;
+}
+
+// У асинхронной машины фиксация осей d–q следует за потоком, а не за
+// ротором: ротор отстаёт от поля, и остановиться на экране должно поле.
+function testInductionReferenceFrameLock() {
+  let testParameters = new InductionMotorParameters();
+  let testSettings = new ControlSettings(testParameters);
+  let testView = new MotorView(testParameters, testSettings);
+  let state = new MotorState();
+  state.mechanicalAngle = 0.2;
+  state.fieldAngle = 0.5;
+  testSettings.lockDqFrame = true;
+  testView.updateReferenceFrame(state);
+  state.mechanicalAngle = 0.3;
+  state.fieldAngle = 1.1;
+  testView.updateReferenceFrame(state);
+  diagnosticNear("A locked frame follows the rotor flux of an induction motor",
+    testView.viewRotation, 0.6, 1e-9);
 }
 
 // Проверки, на которых держатся все тесты: «примерно равно», «признак верен» и

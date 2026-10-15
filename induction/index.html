@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>АД — визуальная модель асинхронной машины</title>
+    <link rel="stylesheet" href="../style.css">
+  </head>
+  <body>
+    <!-- Полотно и то, что его окружает. На полотне рисуется только машина;
+         надписи над ней, легенду, показания и панель управления строит
+         Panel.js — повторять эту разметку в каждой странице режима значило
+         бы править их все при любом её изменении. -->
+    <main id="stage">
+      <div id="app"></div>
+    </main>
+
+    <!-- Асинхронная машина: полная программа со всеми режимами, но с
+         асинхронной машиной вместо синхронной. Код тот же, что в корне
+         проекта, — отличается только машина, объявленная ниже (см.
+         ../Presets.js). Раз страница сама назвала машину, переключателя
+         машины на ней нет; режим выбирается как обычно, в том числе
+         адресом ?mode=vector. Объявить машину нужно до PMSMmodel.js. -->
+    <script>window.PMSM_MACHINE = "induction";</script>
+
+    <!-- Порядок тот же, что в корневом index.html, и список тот же: новый
+         файл .js подключается во всех шести страницах. -->
+    <script src="https://cdn.jsdelivr.net/npm/p5@2.3.3/lib/p5.min.js"></script>
+    <script src="../version.js"></script>
+    <script src="../Theme.js"></script>
+    <script src="../MathUtils.js"></script>
+    <script src="../MotorModel.js"></script>
+    <script src="../InductionMotorModel.js"></script>
+    <script src="../Controllers.js"></script>
+    <script src="../Presets.js"></script>
+    <script src="../Simulation.js"></script>
+    <script src="../MotorView.js"></script>
+    <script src="../Panel.js"></script>
+    <script src="../Help.js"></script>
+    <script src="../Diagnostics.js"></script>
+    <script src="../Updater.js"></script>
+    <script src="../PMSMmodel.js"></script>
+  </body>
+</html>

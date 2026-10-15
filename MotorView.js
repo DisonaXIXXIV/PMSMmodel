@@ -93,6 +93,35 @@ function statorSlotCurrentMark(slot, phaseCurrents, maximumCurrent) {
   };
 }
 
+// Клетка ротора асинхронной машины: 14 стержней. Не 18, как пазов статора:
+// при равном числе зубцы ротора и статора «залипали» бы друг напротив друга —
+// у настоящих машин числа и подбирают разными.
+const ROTOR_BAR_COUNT = 14;
+
+// Угол стержня в неподвижной системе при данном угле ротора.
+function rotorBarAngle(bar, rotorAngle) {
+  return rotorAngle + 2.0 * Math.PI * bar / ROTOR_BAR_COUNT;
+}
+
+// Ток стержня. Клетку удобно представить как распределённую обмотку: вектор
+// тока i с углом γ создаёт в проводнике на угле φ плотность тока
+// |i|·sin(φ − γ) = iα·sin φ − iβ·cos φ — тот же знак, что у статора: ток
+// вдоль α даёт точку («к нам») на 90°, где у статора стоит зона A+.
+// direction и strength — как у statorSlotCurrentMark.
+function rotorBarCurrentMark(barAngle, rotorCurrentAlpha, rotorCurrentBeta, maximumCurrent) {
+  let current = rotorCurrentAlpha * Math.sin(barAngle) - rotorCurrentBeta * Math.cos(barAngle);
+  if (Math.abs(current) < maximumCurrent * 0.01) return { direction: 0, strength: 0.0 };
+  return {
+    direction: Math.sign(current),
+    strength: Math.min(Math.abs(current) / (0.5 * maximumCurrent), 1.0),
+  };
+}
+
+// Поток ротора, которому соответствует полная длина его вектора. Номинал
+// 1 Вб доходит до края ротора — заметно дальше проекции id, которая лежит на
+// той же оси.
+const FLUX_DISPLAY_MAXIMUM = 1.3;
+
 // Вид машины. Состояние здесь только то, что нельзя вывести из модели:
 // геометрия текущего кадра, поворот системы наблюдения и признак того, что
 // сейчас тянут ручной вектор.
@@ -126,17 +155,21 @@ class MotorView {
   //
   // «Зафиксировать оси d–q» не останавливает ротор физически — модель работает
   // как раньше. Поворачивается взгляд: картинка доворачивается на тот же угол,
-  // что прошёл ротор с момента фиксации, и ротор оказывается неподвижен, а
-  // статор и оси α–β начинают вращаться вокруг него. Так видно, что векторное
+  // что прошли оси d–q с момента фиксации, и они оказываются неподвижны, а
+  // статор и оси α–β начинают вращаться вокруг них. Так видно, что векторное
   // управление — это и есть переход в такую систему координат.
+  //
+  // У PMSM оси d–q — это ротор, и останавливается он. У асинхронной машины
+  // оси d–q идут по потоку, и на месте замирает поле, а ротор медленно
+  // проворачивается назад — на скольжение.
   updateReferenceFrame(state) {
     if (this.settings.lockDqFrame && !this.previousLockState) {
-      this.mechanicalAngleAtLock = state.mechanicalAngle;
+      this.mechanicalAngleAtLock = this.frameAngle(state);
       this.returningToStationaryFrame = false;
     }
 
     if (this.settings.lockDqFrame) {
-      this.viewRotation = signedAngle(state.mechanicalAngle - this.mechanicalAngleAtLock);
+      this.viewRotation = signedAngle(this.frameAngle(state) - this.mechanicalAngleAtLock);
     } else if (this.previousLockState) {
       this.returningToStationaryFrame = true;
     }
@@ -155,6 +188,17 @@ class MotorView {
       this.viewRotation = 0.0;
     }
     this.previousLockState = this.settings.lockDqFrame;
+  }
+
+  // Угол, за которым следует зафиксированная картинка. У PMSM это угол ротора
+  // (при p = 1 он же угол оси d), у асинхронной машины — угол потока. Картинка
+  // двухполюсная, поэтому угол поля берётся электрический.
+  frameAngle(state) {
+    return this.isInduction() ? state.fieldAngle : state.mechanicalAngle;
+  }
+
+  isInduction() {
+    return this.parameters.machineType === MACHINE_INDUCTION;
   }
 
   // Сброс вида по кнопке «Сброс»: картинка возвращается в неподвижное
@@ -183,7 +227,7 @@ class MotorView {
   }
 
   // Кадр вида. Порядок вызовов — это порядок слоёв снизу вверх: фон, статор,
-  // ротор, оси, проекции, векторы и дуги моментов.
+  // ротор, оси, поток ротора, проекции, векторы и дуги моментов.
   draw(area, motor) {
     this.updateGeometry(area);
     let state = motor.state;
@@ -195,6 +239,7 @@ class MotorView {
     this.drawStator(state);
     this.drawRotor(state);
     this.drawAxes(state);
+    this.drawFluxVector(state);
     this.drawCurrentProjections(state);
     this.drawElectricalVectors(state);
     this.drawTorqueArcs(state);
@@ -238,7 +283,9 @@ class MotorView {
       let winding = statorSlotWinding(slot);
       let phaseColor = themeColor(theme()[STATOR_PHASE_COLOR_KEYS[winding.phase]]);
       let mark = statorSlotCurrentMark(slot, phaseCurrents, this.parameters.maximumCurrent);
-      this.drawCoilSide(angle, phaseColor, mark, speedFade);
+      this.drawConductor(this.pointX(angle, this.outerRadius * 0.82),
+        this.pointY(angle, this.outerRadius * 0.82), max(7.0, this.outerRadius * 0.052),
+        phaseColor, themeColor(theme().coilMarkerFill), phaseColor, mark, speedFade);
 
       // Подпись зоны ставится на её среднем пазе — одна на три паза.
       if (slot % STATOR_SLOTS_PER_BELT === 1) {
@@ -259,17 +306,14 @@ class MotorView {
     circle(this.centerX, this.centerY, this.statorInnerRadius * 2.0);
   }
 
-  // Сторона катушки в пазу: кружок цвета фазы, а в нём — мгновенный ток:
-  // точка (из плоскости чертежа, к нам) или крест (в плоскость). Чем больше
-  // ток фазы, тем ярче и крупнее значок; без тока кружок пустой.
-  drawCoilSide(angle, phaseColor, mark, fade) {
-    let markerX = this.pointX(angle, this.outerRadius * 0.82);
-    let markerY = this.pointY(angle, this.outerRadius * 0.82);
-    let markerSize = max(7.0, this.outerRadius * 0.052);
-
-    stroke(red(phaseColor), green(phaseColor), blue(phaseColor), 225.0 * fade);
+  // Проводник в разрезе: сторона катушки в пазу статора или стержень клетки
+  // ротора. Кружок с обводкой, а в нём — мгновенный ток: точка (из плоскости
+  // чертежа, к нам) или крест (в плоскость). Чем больше ток, тем ярче и
+  // крупнее значок; без тока кружок пустой.
+  drawConductor(markerX, markerY, markerSize, outlineColor, fillColor, markColor, mark, fade) {
+    stroke(red(outlineColor), green(outlineColor), blue(outlineColor), 225.0 * fade);
     strokeWeight(max(1.0, this.outerRadius * 0.008));
-    fillTheme(theme().coilMarkerFill, 230.0 * fade);
+    fill(red(fillColor), green(fillColor), blue(fillColor), 230.0 * fade);
     circle(markerX, markerY, markerSize);
 
     if (mark.direction === 0) return;
@@ -277,11 +321,11 @@ class MotorView {
     let markScale = lerp(0.6, 1.0, mark.strength);
     if (mark.direction > 0) {
       noStroke();
-      fill(red(phaseColor), green(phaseColor), blue(phaseColor), markAlpha);
+      fill(red(markColor), green(markColor), blue(markColor), markAlpha);
       circle(markerX, markerY, markerSize * 0.33 * markScale);
     } else {
       let crossRadius = markerSize * 0.23 * markScale;
-      stroke(red(phaseColor), green(phaseColor), blue(phaseColor), markAlpha);
+      stroke(red(markColor), green(markColor), blue(markColor), markAlpha);
       strokeWeight(max(1.0, this.outerRadius * 0.009));
       line(markerX - crossRadius, markerY - crossRadius,
         markerX + crossRadius, markerY + crossRadius);
@@ -294,6 +338,10 @@ class MotorView {
   // в центре. Ось d — это и есть направление потока магнитов, поэтому полюс N
   // всегда показывает туда, куда показывает ось d.
   drawRotor(state) {
+    if (this.isInduction()) {
+      this.drawCageRotor(state);
+      return;
+    }
     let rotorScreenAngle = this.screenAngle(state.mechanicalAngle);
     let rpm = abs(rpmFromRadians(state.mechanicalSpeed));
     // Обратная к статору мера: в обычном режиме на большой скорости бледнеет
@@ -330,15 +378,53 @@ class MotorView {
     text("S", this.pointX(rotorScreenAngle + PI, this.rotorRadius * 0.58),
       this.pointY(rotorScreenAngle + PI, this.rotorRadius * 0.58));
 
+    this.drawShaft();
+  }
+
+  // Ротор асинхронной машины: стальной пакет и короткозамкнутая клетка. Полюсов
+  // у него нет — поле в нём наводит статор, — поэтому вместо N и S стержни, и
+  // в каждом мгновенный ток, как в пазах статора. Видно, что ток ротора
+  // течёт почти навстречу току статора под ним: так ротор и отталкивает поле,
+  // пока не догонит его, а момент даёт только та часть, что сдвинута на 90°.
+  drawCageRotor(state) {
+    let rpm = abs(rpmFromRadians(state.mechanicalSpeed));
+    let movingFade = this.settings.lockDqFrame ? 1.0
+      : constrain(map(rpm, 700.0, 3500.0, 1.0, 0.38), 0.38, 1.0);
+
+    noStroke();
+    fillTheme(theme().rotorCore, 255.0);
+    circle(this.centerX, this.centerY, this.rotorRadius * 2.0);
+
+    let barColor = themeColor(theme().rotorBar);
+    let markColor = themeColor(theme().rotorBarMark);
+    let barRadius = this.rotorRadius * 0.8;
+    let barSize = max(7.0, this.rotorRadius * 0.2);
+    for (let bar = 0; bar < ROTOR_BAR_COUNT; bar++) {
+      let physicalAngle = rotorBarAngle(bar, state.mechanicalAngle);
+      let angle = this.screenAngle(physicalAngle);
+      let mark = rotorBarCurrentMark(physicalAngle, state.rotorCurrentAlpha,
+        state.rotorCurrentBeta, this.parameters.maximumCurrent);
+      this.drawConductor(this.pointX(angle, barRadius), this.pointY(angle, barRadius), barSize,
+        barColor, barColor, markColor, mark, movingFade);
+    }
+
+    noFill();
+    strokeTheme(theme().rotorOutline);
+    strokeWeight(max(1.2, this.outerRadius * 0.012));
+    circle(this.centerX, this.centerY, this.rotorRadius * 2.0);
+    this.drawShaft();
+  }
+
+  drawShaft() {
     noStroke();
     fillTheme(theme().shaftOuter);
     circle(this.centerX, this.centerY, this.rotorRadius * 0.14);
     fillTheme(theme().shaftInner);
     circle(this.centerX, this.centerY, this.rotorRadius * 0.055);
-
   }
 
-  // Две системы координат: неподвижная α–β и вращающаяся вместе с ротором d–q.
+  // Две системы координат: неподвижная α–β и вращающаяся d–q — с ротором у
+  // PMSM и с потоком ротора у асинхронной машины (угол fieldAngle).
   // Оси d–q рисуются и тогда, когда флажок их показа снят, но включена
   // фиксация: без них было бы непонятно, относительно чего остановлена
   // картинка.
@@ -349,9 +435,9 @@ class MotorView {
       this.drawAxis(this.screenAngle(HALF_PI), axisRadius, themeColor(theme().axisAlphaBeta), "β", "");
     }
     if (this.settings.showDqAxes || this.settings.lockDqFrame) {
-      this.drawAxis(this.screenAngle(state.electricalAngle), axisRadius * 0.91,
+      this.drawAxis(this.screenAngle(state.fieldAngle), axisRadius * 0.91,
         themeColor(theme().axisD), "d", "");
-      this.drawAxis(this.screenAngle(state.electricalAngle + HALF_PI), axisRadius * 0.91,
+      this.drawAxis(this.screenAngle(state.fieldAngle + HALF_PI), axisRadius * 0.91,
         themeColor(theme().axisQ), "q", "");
     }
   }
@@ -394,17 +480,17 @@ class MotorView {
         themeColor(theme().componentAlphaBeta), "iβ");
     }
     if (this.settings.showDqProjections) {
-      this.drawProjectionGuides(this.screenAngle(state.electricalAngle), state.currentD * scale,
+      this.drawProjectionGuides(this.screenAngle(state.fieldAngle), state.currentD * scale,
         state.currentQ * scale, themeColor(theme().guideDq));
-      this.drawSignedComponent(this.screenAngle(state.electricalAngle), state.currentD * scale,
+      this.drawSignedComponent(this.screenAngle(state.fieldAngle), state.currentD * scale,
         themeColor(theme().componentD), "id");
-      this.drawSignedComponent(this.screenAngle(state.electricalAngle + HALF_PI), state.currentQ * scale,
+      this.drawSignedComponent(this.screenAngle(state.fieldAngle + HALF_PI), state.currentQ * scale,
         themeColor(theme().componentQ), "iq");
     }
   }
 
   // Векторы в неподвижной системе: заданный ручной вектор (бледный), ток,
-  // напряжение и ЭДС. Задание рисуется только в ручном режиме — в остальных
+  // напряжение и ЭДС. Поток ротора — отдельно, ниже по слоям (drawFluxVector). Задание рисуется только в ручном режиме — в остальных
   // его задают числом, а не мышью.
   drawElectricalVectors(state) {
     if (this.settings.mode == MODE_MANUAL) {
@@ -435,6 +521,16 @@ class MotorView {
         this.statorInnerRadius * (manualVoltage ? 0.91 : 0.86),
         themeColor(theme().vectorEmf), "E");
     }
+  }
+
+  // Поток ротора: ось d асинхронной машины идёт ровно по нему, и видно, как
+  // он отстаёт от тока статора и как ротор отстаёт от него. Рисуется под
+  // проекциями: проекция id лежит на той же оси, и поверх потока её подпись
+  // читается, а под ним — нет.
+  drawFluxVector(state) {
+    if (!this.isInduction() || !this.settings.showFlux) return;
+    this.drawPhysicalVector(state.fluxAlpha, state.fluxBeta, FLUX_DISPLAY_MAXIMUM,
+      this.statorInnerRadius * 0.91, themeColor(theme().vectorFlux), "ψr");
   }
 
   // Ручное задание напряжения: и задание, и полученное напряжение, и ЭДС

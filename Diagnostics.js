@@ -59,6 +59,7 @@ function runSimulationDiagnostics() {
   testFluxVectorDisplay();
   testInductionReferenceFrameLock();
   testTorqueArcsFitCanvas();
+  testTorqueArcsMeet();
   testVersionStamp();
   testVersionParsing();
 
@@ -1326,7 +1327,7 @@ function testTorqueArcsFitCanvas() {
   let testSettings = new ControlSettings(testParameters);
   let testView = new MotorView(testParameters, testSettings);
   let arcs = [];
-  testView.drawTorqueArc = (torque, radius) => arcs.push(radius);
+  testView.drawTorqueArc = (arc, radius) => arcs.push(radius);
   // Цвет дуг собирается функцией p5 color; здесь он не важен.
   let stubbedColor = typeof color === "undefined";
   if (stubbedColor) globalThis.color = () => null;
@@ -1341,6 +1342,35 @@ function testTorqueArcsFitCanvas() {
     diagnosticLessThan("Torque arcs fit a " + area.w + "x" + area.h + " canvas",
       reach, 0.5 * Math.min(area.w, area.h));
   }
+  if (stubbedColor) delete globalThis.color;
+}
+
+// Дуга момента машины начинается там, где кончается дуга нагрузки, — если
+// нагрузка есть. Без нагрузки — на своём обычном месте: −126° для
+// положительного момента.
+function testTorqueArcsMeet() {
+  let testParameters = new MotorParameters();
+  let testSettings = new ControlSettings(testParameters);
+  let testView = new MotorView(testParameters, testSettings);
+  testView.updateGeometry({ x: 0.0, y: 0.0, w: 680.0, h: 700.0 });
+  let drawn = [];
+  testView.drawTorqueArc = (arc) => drawn.push(arc);
+  let stubbedColor = typeof color === "undefined";
+  if (stubbedColor) globalThis.color = () => null;
+
+  testView.drawTorqueArcs({ electromagneticTorque: 12.0, loadTorque: 10.0 });
+  let [motor, load] = drawn;
+  diagnosticNear("The motor torque arc starts where the load arc ends",
+    motor.start, load.start + load.sweep, 1e-12);
+  diagnosticTrue("The motor and load arcs point opposite ways",
+    motor.direction === 1.0 && load.direction === -1.0);
+
+  drawn = [];
+  testView.drawTorqueArcs({ electromagneticTorque: 12.0, loadTorque: 0.0 });
+  diagnosticTrue("Without a load the load arc is not drawn", drawn[1] === null);
+  diagnosticNear("Without a load the motor arc starts at its usual place",
+    drawn[0].start, -0.70 * PI, 1e-12);
+
   if (stubbedColor) delete globalThis.color;
 }
 

@@ -712,31 +712,50 @@ class MotorView {
   // нагрузки дальше. У нагрузки знак обратный, потому что положительная
   // нагрузка по принятому соглашению противодействует положительному
   // вращению, — и на картинке её дуга смотрит навстречу дуге машины.
+  //
+  // Когда нагрузка есть, дуга машины начинается там, где кончается дуга
+  // нагрузки: моменты встречаются в одной точке и упираются друг в друга, и
+  // по длине видно, кто кого перетягивает. Без нагрузки дуга машины
+  // начинается на своём обычном месте (см. torqueArcGeometry).
   drawTorqueArcs(state) {
     // Радиусы вместе с размером машины в updateGeometry подобраны так, что
     // внешняя дуга с толщиной и наконечником остаётся внутри полотна в любом
     // направлении: (1,105 + полтолщины + наконечник) · 0,435 < 0,5 меньшей
     // стороны; testTorqueArcsFitCanvas это проверяет.
-    this.drawTorqueArc(state.electromagneticTorque, this.outerRadius * 1.05,
-      themeColor(theme().torqueMotor));
-    this.drawTorqueArc(-state.loadTorque, this.outerRadius * 1.105,
-      themeColor(theme().torqueLoad));
+    let load = this.torqueArcGeometry(-state.loadTorque);
+    let motor = this.torqueArcGeometry(state.electromagneticTorque,
+      load === null ? undefined : load.start + load.sweep);
+    this.drawTorqueArc(motor, this.outerRadius * 1.05, themeColor(theme().torqueMotor));
+    this.drawTorqueArc(load, this.outerRadius * 1.105, themeColor(theme().torqueLoad));
   }
 
-  // Одна дуга: направление — знак момента, длина и толщина — его величина,
-  // отнесённая к предельному моменту. Почти нулевые моменты не рисуются: их
-  // дуга всё равно была бы короче наконечника.
-  drawTorqueArc(torque, radius, arcColor) {
-    if (abs(torque) < 0.015) return;
+  // Геометрия одной дуги: направление — знак момента, длина и толщина — его
+  // величина, отнесённая к предельному моменту. Почти нулевые моменты не
+  // рисуются (null): их дуга всё равно была бы короче наконечника.
+  //
+  // Начало, если его не задали, — на 36° от низа в сторону, противоположную
+  // вращению: −126° для положительного момента, −54° для отрицательного. Так
+  // дуга растёт через низ в сторону вращения, а дуги разных знаков
+  // зеркальны относительно вертикали.
+  torqueArcGeometry(torque, start) {
+    if (abs(torque) < 0.015) return null;
     let direction = torque >= 0.0 ? 1.0 : -1.0;
     let normalized = constrain(abs(torque) / this.parameters.maximumLoadTorque, 0.0, 1.0);
-    let sweep = direction * lerp(0.24 * PI, 1.22 * PI, normalized);
-    let start = direction > 0.0 ? -0.70 * PI : -0.30 * PI;
+    return {
+      direction,
+      normalized,
+      start: start === undefined ? (direction > 0.0 ? -0.70 * PI : -0.30 * PI) : start,
+      sweep: direction * lerp(0.24 * PI, 1.22 * PI, normalized),
+    };
+  }
+
+  drawTorqueArc(arc, radius, arcColor) {
+    if (arc === null) return;
     noFill();
     stroke(arcColor);
-    strokeWeight(max(2.0, this.outerRadius * (0.012 + 0.014 * normalized)));
-    this.drawMathArc(this.centerX, this.centerY, radius, start, sweep, 40);
-    this.drawArcArrowHead(radius, start + sweep, direction, arcColor);
+    strokeWeight(max(2.0, this.outerRadius * (0.012 + 0.014 * arc.normalized)));
+    this.drawMathArc(this.centerX, this.centerY, radius, arc.start, arc.sweep, 40);
+    this.drawArcArrowHead(radius, arc.start + arc.sweep, arc.direction, arcColor);
   }
 
   // Дуга в математических углах. Своей arc() у p5 углы отсчитываются по

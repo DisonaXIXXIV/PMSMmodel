@@ -413,6 +413,36 @@ class MotorView {
     strokeWeight(max(1.2, this.outerRadius * 0.012));
     circle(this.centerX, this.centerY, this.rotorRadius * 2.0);
     this.drawShaft();
+    this.drawRotorZeroMark(state, barRadius, barSize);
+  }
+
+  // Метка механического нуля ротора. У клетки, в отличие от магнита, нет
+  // полюсов, и без метки не видно, где ротор и куда он поворачивается: все
+  // стержни одинаковы, а значки тока в них бегут вместе с полем, а не с
+  // ротором. Метка — стержень 0 (он стоит ровно на угле θ ротора), луч к нему
+  // от вала и треугольник на ободе в зазоре. По ней видно, как ротор отстаёт
+  // от ψr и от тока: оси d–q и векторы уходят вперёд, метка — за ними.
+  // Скорость метку не бледнит: она нужна именно на ходу.
+  drawRotorZeroMark(state, barRadius, barSize) {
+    let angle = this.screenAngle(rotorBarAngle(0, state.mechanicalAngle));
+    let markColor = themeColor(theme().rotorZeroMark);
+    stroke(markColor);
+    strokeWeight(max(1.5, this.outerRadius * 0.012));
+    line(this.pointX(angle, this.rotorRadius * 0.09), this.pointY(angle, this.rotorRadius * 0.09),
+      this.pointX(angle, barRadius - barSize * 0.5), this.pointY(angle, barRadius - barSize * 0.5));
+    noFill();
+    strokeWeight(max(2.0, this.outerRadius * 0.014));
+    circle(this.pointX(angle, barRadius), this.pointY(angle, barRadius), barSize * 1.25);
+
+    // Треугольник остриём наружу: основание на ободе ротора, вершина в зазоре.
+    let base = this.rotorRadius;
+    let tip = this.rotorRadius + (this.statorInnerRadius - this.rotorRadius) * 0.55;
+    let halfWidth = 0.07;
+    noStroke();
+    fill(markColor);
+    triangle(this.pointX(angle - halfWidth, base), this.pointY(angle - halfWidth, base),
+      this.pointX(angle + halfWidth, base), this.pointY(angle + halfWidth, base),
+      this.pointX(angle, tip), this.pointY(angle, tip));
   }
 
   drawShaft() {

@@ -1259,6 +1259,9 @@ function testRotorBarCurrents() {
     statorMark.direction === barMark.direction && barMark.direction !== 0);
   diagnosticNear("The bars are spaced evenly around the rotor",
     rotorBarAngle(1, 0.3) - rotorBarAngle(0, 0.3), TWO_PI / ROTOR_BAR_COUNT, 1e-12);
+  // Стержень 0 — метка механического нуля: он обязан стоять ровно на угле
+  // ротора, иначе метка показывала бы не θ, а θ со сдвигом.
+  diagnosticNear("Bar 0 marks the mechanical zero of the rotor", rotorBarAngle(0, 0.3), 0.3, 1e-12);
 }
 
 // Вектор потока ротора рисуется только у асинхронной машины и только при

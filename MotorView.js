@@ -218,7 +218,11 @@ class MotorView {
   updateGeometry(area) {
     this.centerX = area.x + area.w * 0.5;
     this.centerY = area.y + area.h * 0.5;
-    this.outerRadius = min(area.w, area.h) * 0.46;
+    // 0,435 — не «чем больше, тем лучше», а предел, при котором в полотно
+    // влезают дуги моментов вокруг статора (см. drawTorqueArcs). Было 0,46, и
+    // дуга нагрузки на 1,17 радиуса уходила за край почти квадратного полотна
+    // широкой компоновки: короткая дуга малой нагрузки пряталась целиком.
+    this.outerRadius = min(area.w, area.h) * 0.435;
     // Три радиуса задают всю машину, и остальные размеры (пазы, кружки сторон
     // катушек, длины векторов, кегли подписей на картинке) считаются от них.
     // Поэтому машина остаётся соразмерной при любом размере окна.
@@ -709,9 +713,13 @@ class MotorView {
   // нагрузка по принятому соглашению противодействует положительному
   // вращению, — и на картинке её дуга смотрит навстречу дуге машины.
   drawTorqueArcs(state) {
-    this.drawTorqueArc(state.electromagneticTorque, this.outerRadius * 1.08,
+    // Радиусы вместе с размером машины в updateGeometry подобраны так, что
+    // внешняя дуга с толщиной и наконечником остаётся внутри полотна в любом
+    // направлении: (1,105 + полтолщины + наконечник) · 0,435 < 0,5 меньшей
+    // стороны; testTorqueArcsFitCanvas это проверяет.
+    this.drawTorqueArc(state.electromagneticTorque, this.outerRadius * 1.05,
       themeColor(theme().torqueMotor));
-    this.drawTorqueArc(-state.loadTorque, this.outerRadius * 1.17,
+    this.drawTorqueArc(-state.loadTorque, this.outerRadius * 1.105,
       themeColor(theme().torqueLoad));
   }
 

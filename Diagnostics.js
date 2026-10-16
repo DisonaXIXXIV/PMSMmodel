@@ -58,6 +58,7 @@ function runSimulationDiagnostics() {
   testRotorBarCurrents();
   testFluxVectorDisplay();
   testInductionReferenceFrameLock();
+  testTorqueArcsFitCanvas();
   testVersionStamp();
   testVersionParsing();
 
@@ -1313,6 +1314,34 @@ function testInductionReferenceFrameLock() {
   testView.updateReferenceFrame(state);
   diagnosticNear("A locked frame follows the rotor flux of an induction motor",
     testView.viewRotation, 0.6, 1e-9);
+}
+
+// Дуги моментов вокруг статора обязаны помещаться в полотно при любом
+// моменте: дуга нагрузки однажды уходила за нижний край, и малая нагрузка не
+// рисовалась вовсе. Дуги перехватываются, а их крайние точки — радиус плюс
+// полтолщины плюс наконечник — сверяются с краями полотна в трёх
+// компоновках: почти квадратной широкой, высокой компактной и низкой.
+function testTorqueArcsFitCanvas() {
+  let testParameters = new MotorParameters();
+  let testSettings = new ControlSettings(testParameters);
+  let testView = new MotorView(testParameters, testSettings);
+  let arcs = [];
+  testView.drawTorqueArc = (torque, radius) => arcs.push(radius);
+  // Цвет дуг собирается функцией p5 color; здесь он не важен.
+  let stubbedColor = typeof color === "undefined";
+  if (stubbedColor) globalThis.color = () => null;
+  for (const area of [{ x: 0.0, y: 0.0, w: 680.0, h: 700.0 },
+    { x: 0.0, y: 0.0, w: 400.0, h: 470.0 }, { x: 0.0, y: 0.0, w: 900.0, h: 500.0 }]) {
+    testView.updateGeometry(area);
+    arcs = [];
+    testView.drawTorqueArcs({ electromagneticTorque: 1.0, loadTorque: 1.0 });
+    let thickness = testView.outerRadius * (0.012 + 0.014);
+    let head = max(6.0, testView.outerRadius * 0.045) * Math.sin(0.5);
+    let reach = Math.max(...arcs) + 0.5 * thickness + head;
+    diagnosticLessThan("Torque arcs fit a " + area.w + "x" + area.h + " canvas",
+      reach, 0.5 * Math.min(area.w, area.h));
+  }
+  if (stubbedColor) delete globalThis.color;
 }
 
 // Проверки, на которых держатся все тесты: «примерно равно», «признак верен» и

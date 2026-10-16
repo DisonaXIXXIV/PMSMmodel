@@ -122,6 +122,12 @@ function rotorBarCurrentMark(barAngle, rotorCurrentAlpha, rotorCurrentBeta, maxi
 // той же оси.
 const FLUX_DISPLAY_MAXIMUM = 1.3;
 
+// Угол конца дуги момента или undefined, если дуги нет: тогда следующая
+// дуга цепочки начинается на своём обычном месте.
+function torqueArcEnd(arc) {
+  return arc === null ? undefined : arc.start + arc.sweep;
+}
+
 // Вид машины. Состояние здесь только то, что нельзя вывести из модели:
 // геометрия текущего кадра, поворот системы наблюдения и признак того, что
 // сейчас тянут ручной вектор.
@@ -713,20 +719,25 @@ class MotorView {
   // нагрузка по принятому соглашению противодействует положительному
   // вращению, — и на картинке её дуга смотрит навстречу дуге машины.
   //
-  // Когда нагрузка есть, дуга машины начинается там, где кончается дуга
-  // нагрузки: моменты встречаются в одной точке и упираются друг в друга, и
-  // по длине видно, кто кого перетягивает. Без нагрузки дуга машины
-  // начинается на своём обычном месте (см. torqueArcGeometry).
+  // Момент трения — третья дуга, на том же радиусе, что и нагрузка: он тоже
+  // противодействует вращению, и вместе они — весь момент сопротивления.
+  // Поэтому дуги идут цепочкой: трение продолжает дугу нагрузки, а дуга
+  // машины начинается там, где кончается последняя из них. Моменты
+  // встречаются в одной точке и упираются друг в друга, и по длине видно,
+  // кто кого перетягивает. Без нагрузки и трения дуга машины начинается на
+  // своём обычном месте (см. torqueArcGeometry).
   drawTorqueArcs(state) {
     // Радиусы вместе с размером машины в updateGeometry подобраны так, что
     // внешняя дуга с толщиной и наконечником остаётся внутри полотна в любом
     // направлении: (1,105 + полтолщины + наконечник) · 0,435 < 0,5 меньшей
     // стороны; testTorqueArcsFitCanvas это проверяет.
     let load = this.torqueArcGeometry(-state.loadTorque);
-    let motor = this.torqueArcGeometry(state.electromagneticTorque,
-      load === null ? undefined : load.start + load.sweep);
+    let friction = this.torqueArcGeometry(-state.frictionTorque, torqueArcEnd(load));
+    let resistance = friction === null ? load : friction;
+    let motor = this.torqueArcGeometry(state.electromagneticTorque, torqueArcEnd(resistance));
     this.drawTorqueArc(motor, this.outerRadius * 1.05, themeColor(theme().torqueMotor));
     this.drawTorqueArc(load, this.outerRadius * 1.105, themeColor(theme().torqueLoad));
+    this.drawTorqueArc(friction, this.outerRadius * 1.105, themeColor(theme().torqueFriction));
   }
 
   // Геометрия одной дуги: направление — знак момента, длина и толщина — его

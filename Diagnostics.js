@@ -1335,7 +1335,7 @@ function testTorqueArcsFitCanvas() {
     { x: 0.0, y: 0.0, w: 400.0, h: 470.0 }, { x: 0.0, y: 0.0, w: 900.0, h: 500.0 }]) {
     testView.updateGeometry(area);
     arcs = [];
-    testView.drawTorqueArcs({ electromagneticTorque: 1.0, loadTorque: 1.0 });
+    testView.drawTorqueArcs({ electromagneticTorque: 1.0, loadTorque: 1.0, frictionTorque: 1.0 });
     let thickness = testView.outerRadius * (0.012 + 0.014);
     let head = max(6.0, testView.outerRadius * 0.045) * Math.sin(0.5);
     let reach = Math.max(...arcs) + 0.5 * thickness + head;
@@ -1354,22 +1354,41 @@ function testTorqueArcsMeet() {
   let testView = new MotorView(testParameters, testSettings);
   testView.updateGeometry({ x: 0.0, y: 0.0, w: 680.0, h: 700.0 });
   let drawn = [];
-  testView.drawTorqueArc = (arc) => drawn.push(arc);
+  testView.drawTorqueArc = (arc, radius) => drawn.push({ arc, radius });
   let stubbedColor = typeof color === "undefined";
   if (stubbedColor) globalThis.color = () => null;
 
-  testView.drawTorqueArcs({ electromagneticTorque: 12.0, loadTorque: 10.0 });
-  let [motor, load] = drawn;
-  diagnosticNear("The motor torque arc starts where the load arc ends",
-    motor.start, load.start + load.sweep, 1e-12);
-  diagnosticTrue("The motor and load arcs point opposite ways",
-    motor.direction === 1.0 && load.direction === -1.0);
+  // Порядок рисования: машина, нагрузка, трение.
+  testView.drawTorqueArcs({ electromagneticTorque: 12.0, loadTorque: 10.0, frictionTorque: 0.3 });
+  let [motor, load, friction] = drawn;
+  diagnosticNear("The friction arc continues the load arc",
+    friction.arc.start, load.arc.start + load.arc.sweep, 1e-12);
+  diagnosticTrue("The friction arc shares the radius of the load arc",
+    friction.radius === load.radius);
+  diagnosticNear("The motor torque arc starts where the friction arc ends",
+    motor.arc.start, friction.arc.start + friction.arc.sweep, 1e-12);
+  diagnosticTrue("The motor arc points against the load and the friction",
+    motor.arc.direction === 1.0 && load.arc.direction === -1.0
+    && friction.arc.direction === -1.0);
 
   drawn = [];
-  testView.drawTorqueArcs({ electromagneticTorque: 12.0, loadTorque: 0.0 });
-  diagnosticTrue("Without a load the load arc is not drawn", drawn[1] === null);
-  diagnosticNear("Without a load the motor arc starts at its usual place",
-    drawn[0].start, -0.70 * PI, 1e-12);
+  testView.drawTorqueArcs({ electromagneticTorque: 12.0, loadTorque: 10.0, frictionTorque: 0.0 });
+  diagnosticNear("Without friction the motor arc starts where the load arc ends",
+    drawn[0].arc.start, drawn[1].arc.start + drawn[1].arc.sweep, 1e-12);
+
+  drawn = [];
+  testView.drawTorqueArcs({ electromagneticTorque: 12.0, loadTorque: 0.0, frictionTorque: 0.3 });
+  diagnosticNear("Without a load the friction arc starts at its usual place",
+    drawn[2].arc.start, -0.30 * PI, 1e-12);
+  diagnosticNear("Without a load the motor arc starts where the friction arc ends",
+    drawn[0].arc.start, drawn[2].arc.start + drawn[2].arc.sweep, 1e-12);
+
+  drawn = [];
+  testView.drawTorqueArcs({ electromagneticTorque: 12.0, loadTorque: 0.0, frictionTorque: 0.0 });
+  diagnosticTrue("With no resistance only the motor arc is drawn",
+    drawn[1].arc === null && drawn[2].arc === null);
+  diagnosticNear("With no resistance the motor arc starts at its usual place",
+    drawn[0].arc.start, -0.70 * PI, 1e-12);
 
   if (stubbedColor) delete globalThis.color;
 }

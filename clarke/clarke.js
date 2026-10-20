@@ -519,13 +519,16 @@ function drawPlane(view) {
     let { starts, tips } = phaseVectorScreen(view);
     for (let k = 0; k < 3; k++) {
       drawArrow(starts[k][0], starts[k][1], tips[k][0], tips[k][1], entries[k], 3, phaseAlpha);
-      // Подпись у конца, чуть дальше по направлению вектора.
+      // Подпись у конца — только пока векторы стоят на общей вертикали (сцена
+      // 3): там они рядом и одного цвета мало. На своих осях фазу и так
+      // видно по оси, и подпись гаснет вместе с поворотом.
+      let labelAlpha = phaseAlpha * (1 - clarkeEase(m.rotate));
       let dx = tips[k][0] - starts[k][0];
       let dy = tips[k][1] - starts[k][1];
       let length = Math.hypot(dx, dy);
-      if (length > 14) {
+      if (length > 14 && labelAlpha > 1) {
         noStroke();
-        fillTheme(entries[k], phaseAlpha);
+        fillTheme(entries[k], labelAlpha);
         textAlign(CENTER, CENTER);
         textSize(size);
         textStyle(BOLD);

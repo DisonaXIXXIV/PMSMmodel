@@ -1,0 +1,96 @@
+<!doctype html>
+<!--
+  Преобразование Кларк (abc → α–β) по шагам: от трёх синусоид фаз к
+  вращающемуся вектору и его проекциям. Устроена как park/: свой код, а из
+  корня — только темы (../Theme.js) и версия с обновлением (../version.js,
+  ../Updater.js). Тексты сцен — в scenes.js.
+-->
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Преобразование Кларк</title>
+    <link rel="stylesheet" href="clarke.css">
+  </head>
+  <body>
+    <main id="stage"></main>
+
+    <aside id="panel">
+      <header class="panel-header">
+        <h1>Преобразование Кларк</h1>
+        <div class="header-actions">
+          <!-- Значок показывает тему, в которую кнопка переведёт, а не текущую, —
+               как в модели. Какой из двух виден, решает clarke.css по
+               data-theme, поэтому скрипту здесь делать нечего. -->
+          <button type="button" id="theme" class="icon-button" title="Сменить тему (T)"
+                  aria-label="Сменить тему">
+            <svg class="icon icon-sun" viewBox="0 0 24 24" aria-hidden="true" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="4"/>
+              <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/>
+            </svg>
+            <svg class="icon icon-moon" viewBox="0 0 24 24" aria-hidden="true" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a7 7 0 1 0 10.5 10.5z"/>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Сцены и время в одной карточке: на телефоне она видна без прокрутки. -->
+      <section class="card">
+        <nav class="scene-nav" aria-label="Сцены">
+          <button type="button" id="prev" title="Предыдущая сцена (←)">← Назад</button>
+          <span class="scene-number" id="scene-number"></span>
+          <button type="button" id="next" title="Следующая сцена (→)">Вперёд →</button>
+        </nav>
+        <div class="time-row">
+          <button type="button" id="pause" aria-pressed="false" title="Пауза (пробел)">Пауза</button>
+          <input type="range" id="time" aria-label="Угол ωt, градусы">
+          <output id="time-value" for="time"></output>
+        </div>
+      </section>
+
+      <!-- Комментарий к сцене: заголовок и текст берутся из scenes.js. -->
+      <section class="card">
+        <h2 class="scene-title" id="scene-title"></h2>
+        <p class="scene-text" id="scene-text"></p>
+      </section>
+
+      <!-- Слои видны только на последней сцене: clarke.js прячет карточку. -->
+      <section class="card" id="layers" hidden>
+        <h2>Слои</h2>
+        <label class="checkbox"><input type="checkbox" id="layer-phase-graph">
+          Синусоиды фаз a, b, c</label>
+        <label class="checkbox"><input type="checkbox" id="layer-ab-graph">
+          Графики α(t), β(t)</label>
+        <label class="checkbox"><input type="checkbox" id="layer-phase-vectors">
+          Фазные векторы</label>
+        <label class="checkbox"><input type="checkbox" id="layer-resultant">
+          Результирующий вектор и его след</label>
+        <label class="checkbox"><input type="checkbox" id="layer-projections">
+          Проекции на α и β</label>
+      </section>
+
+      <p class="hint">Амплитудно-инвариантная форма (коэффициент 2/3): длина
+        вектора равна амплитуде фазы Um. Порядок фаз ABC, ось A совпадает с α,
+        вращение — против часовой стрелки. Клавиши: ← → — сцены, пробел — пауза.</p>
+
+      <p class="back"><a href="../">← К модели PMSM</a></p>
+      <!-- Версия — время последнего коммита из ../version.js; рядом с ней
+           clarke.js ставит кнопку «обновить до …», когда на сервере новая. -->
+      <p class="version" id="version"></p>
+    </aside>
+
+    <!-- Сборки нет: файлы подключаются по одному. Theme.js идёт раньше
+         clarke.js — он выставляет тему до первого кадра; scenes.js и
+         ClarkeTransform.js — раньше clarke.js, который берёт их имена. -->
+    <script src="https://cdn.jsdelivr.net/npm/p5@2.3.3/lib/p5.min.js"></script>
+    <script src="../version.js"></script>
+    <script src="../Theme.js"></script>
+    <script src="../Updater.js"></script>
+    <script src="scenes.js"></script>
+    <script src="ClarkeTransform.js"></script>
+    <script src="clarke.js"></script>
+  </body>
+</html>

@@ -127,6 +127,13 @@ CSS-переменные, которые `Theme.js` выставляет из к
 `run-diagnostics.js` — у неё свой `tests/park-diagnostics.js`. Цвета — тоже в
 `Theme.js` (`componentAlpha`, `componentBeta` и общие ключи осей и векторов).
 
+**Страница `clarke/`** (преобразование Кларк) устроена так же, как `park/`:
+из корня берёт только `Theme.js`, `version.js` и `Updater.js`, тесты — свои,
+`tests/clarke-diagnostics.js`. Тексты сцен — `clarke/scenes.js`, их состояние
+— `CLARKE_SCENE_STATES` по тому же номеру: сцену добавляют в оба места, длину
+сверяет `testClarkeScenes`. Цвета α, β и результирующего вектора — ключи
+`clarkeAlpha`, `clarkeBeta`, `clarkeResultant` в `Theme.js`.
+
 ## Версия
 
 `version.js` руками не правят: его переписывает `.githooks/pre-commit` при

@@ -1,0 +1,188 @@
+<!doctype html>
+<!--
+  Игра «Ручной инвертор»: PMSM, двухуровневый инвертор и период ШИМ 2 кГц,
+  растянутый до 5 с, — стойки переключает игрок. Отдельная страница со своим
+  кодом, как park/ и clarke/: от модели машины она берёт только темы
+  (../Theme.js) и версию с обновлением (../version.js, ../Updater.js).
+-->
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Ручной инвертор</title>
+    <link rel="stylesheet" href="game.css">
+  </head>
+  <body>
+    <header id="hud">
+      <button type="button" id="hud-menu" class="icon-button" title="Меню (Esc)" aria-label="Меню">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <div class="hud-title">
+        <span class="hud-mode" id="hud-mode"></span>
+        <strong id="hud-level"></strong>
+      </div>
+      <div class="hud-goal">
+        <div class="hud-goal-text"><span id="hud-goal"></span><span id="hud-progress"></span></div>
+        <div class="progress"><div class="progress-fill" id="hud-progress-bar"></div></div>
+      </div>
+      <div class="hud-actions">
+        <div class="tempo" role="group" aria-label="Темп" id="tempo"></div>
+        <button type="button" id="hud-pause" aria-pressed="false" title="Пауза (пробел)">Пауза</button>
+        <button type="button" id="hud-restart" title="Заново (R)">Заново</button>
+        <!-- Значок показывает тему, в которую кнопка переведёт, — как в модели. -->
+        <button type="button" class="icon-button theme-button" title="Сменить тему (T)" aria-label="Сменить тему">
+          <svg class="icon icon-sun" viewBox="0 0 24 24" aria-hidden="true" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="4"/>
+            <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/>
+          </svg>
+          <svg class="icon icon-moon" viewBox="0 0 24 24" aria-hidden="true" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a7 7 0 1 0 10.5 10.5z"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <main id="stage">
+      <div id="toast" role="status" aria-live="polite"></div>
+    </main>
+
+    <!-- Главное меню: два набора уровней. Карточки уровней строит game.js из
+         INVERTER_LEVELS, здесь только каркас. -->
+    <section id="menu" class="overlay" aria-label="Меню">
+      <div class="menu-sheet">
+        <div class="menu-hero">
+          <svg class="logo" viewBox="0 0 120 104" aria-hidden="true">
+            <polygon points="30,2 90,2 120,52 90,102 30,102 0,52" class="logo-hex"/>
+            <line x1="60" y1="52" x2="120" y2="52" class="logo-ray"/>
+            <line x1="60" y1="52" x2="90" y2="2" class="logo-ray"/>
+            <circle cx="60" cy="52" r="7" class="logo-dot"/>
+          </svg>
+          <div>
+            <h1>Ручной инвертор</h1>
+            <p class="tagline">Период ШИМ 2 кГц растянут до 5 секунд. Ключи переключаете вы.
+              Заставьте синхронную машину слушаться — и не выбейте защиту.</p>
+          </div>
+        </div>
+
+        <div class="modes">
+          <section class="mode-column">
+            <header>
+              <h2>Ключи</h2>
+              <p>Нажимайте на стойки: верхний и нижний ключ работают в противофазе.</p>
+            </header>
+            <ol class="level-list" id="levels-legs"></ol>
+          </section>
+          <section class="mode-column">
+            <header>
+              <h2>Уставки</h2>
+              <p>Двигайте уставки сравнения — стойки переключит модулятор.</p>
+            </header>
+            <ol class="level-list" id="levels-duty"></ol>
+          </section>
+        </div>
+
+        <footer class="menu-footer">
+          <button type="button" id="resume" class="primary" hidden>Продолжить</button>
+          <button type="button" id="open-rules">Как играть</button>
+          <button type="button" class="icon-button theme-button" title="Сменить тему (T)" aria-label="Сменить тему">
+            <svg class="icon icon-sun" viewBox="0 0 24 24" aria-hidden="true" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="4"/>
+              <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/>
+            </svg>
+            <svg class="icon icon-moon" viewBox="0 0 24 24" aria-hidden="true" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a7 7 0 1 0 10.5 10.5z"/>
+            </svg>
+          </button>
+          <span class="spacer"></span>
+          <a href="../">← К модели PMSM</a>
+          <!-- Версия — время последнего коммита из ../version.js; рядом с ней
+               game.js ставит кнопку «обновить до …», когда на сервере новая. -->
+          <span class="version" id="version"></span>
+        </footer>
+      </div>
+    </section>
+
+    <!-- Брифинг перед уровнем. -->
+    <section id="brief" class="overlay" aria-label="Задание">
+      <div class="dialog">
+        <p class="dialog-kicker" id="brief-kicker"></p>
+        <h2 id="brief-title"></h2>
+        <p id="brief-text"></p>
+        <div class="goal-box">
+          <span class="goal-label">Цель</span>
+          <span id="brief-goal"></span>
+        </div>
+        <ul class="controls-list" id="brief-controls"></ul>
+        <div class="dialog-actions">
+          <button type="button" id="brief-menu">Меню</button>
+          <button type="button" id="brief-start" class="primary">Старт</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Итог уровня. -->
+    <section id="result" class="overlay" aria-label="Итог">
+      <div class="dialog">
+        <p class="dialog-kicker" id="result-kicker"></p>
+        <h2 id="result-title"></h2>
+        <p id="result-text"></p>
+        <dl class="stats" id="result-stats"></dl>
+        <div class="dialog-actions">
+          <button type="button" id="result-menu">Меню</button>
+          <button type="button" id="result-retry">Ещё раз</button>
+          <button type="button" id="result-next" class="primary">Дальше</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Правила. -->
+    <section id="rules" class="overlay" aria-label="Как играть">
+      <div class="dialog dialog-wide">
+        <h2>Как играть</h2>
+        <p>Наверху — машина в разрезе: ротор с магнитами, оси d (по северному полюсу)
+          и q, вектор тока i и, если цель — ток, задание i*. Справа — шестиугольник
+          векторов напряжения: включённая комбинация стоек подсвечена, тонкая стрелка —
+          среднее напряжение за прошлый период, розовая — ЭДС вращения.</p>
+        <p>Внизу — инвертор. Каждая стойка — пара ключей: либо верхний (фаза на +Udc),
+          либо нижний (на 0). Три стойки дают восемь комбинаций: шесть активных
+          векторов длиной 2/3·Udc и два нулевых — 000 и 111.</p>
+        <p>Модель считает с шагом 0,5 мкс, а период ШИМ (500 мкс) идёт 5 секунд.
+          Цели по току судятся по среднему за период: пульсация внутри периода
+          допустима, важен итог. Осциллограмма показывает и мгновенный ток, и
+          ступеньки средних.</p>
+        <p>Защиты: фазный ток больше 15 А или напряжение звена больше 60 В — уровень
+          проигран. Выпрямитель энергию назад не принимает: при торможении звено
+          растёт, и сливать её нужно тормозным ключом в резистор 10 Ом.</p>
+        <p>Машина: R = 0,2 Ом, L = 1 мГн, ψf = 0,04 Вб, p = 1, J = 10⁻⁴ кг·м².
+          Звено: 48 В через 0,5 Ом, 330 мкФ. Преобразование Кларк
+          амплитудно-инвариантное (2/3): длина вектора — амплитуда фазного тока.</p>
+        <h3>Клавиши</h3>
+        <ul class="controls-list">
+          <li><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> — переключить стойку A, B, C</li>
+          <li><kbd>Q</kbd>/<kbd>A</kbd>, <kbd>W</kbd>/<kbd>S</kbd>, <kbd>E</kbd>/<kbd>D</kbd> — уставка A, B, C выше / ниже</li>
+          <li><kbd>B</kbd> — тормозной ключ</li>
+          <li><kbd>Пробел</kbd> — пауза, <kbd>R</kbd> — заново, <kbd>Esc</kbd> — меню</li>
+          <li><kbd>+</kbd> / <kbd>−</kbd> — темп, <kbd>T</kbd> — тема</li>
+        </ul>
+        <p class="hint">Русская раскладка тоже работает.</p>
+        <div class="dialog-actions">
+          <button type="button" id="rules-close" class="primary">Понятно</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Сборки нет: файлы подключаются по одному. Theme.js идёт раньше
+         game.js — он выставляет тему до первого кадра. -->
+    <script src="https://cdn.jsdelivr.net/npm/p5@2.3.3/lib/p5.min.js"></script>
+    <script src="../version.js"></script>
+    <script src="../Theme.js"></script>
+    <script src="../Updater.js"></script>
+    <script src="InverterGame.js"></script>
+    <script src="game.js"></script>
+  </body>
+</html>

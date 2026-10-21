@@ -134,6 +134,14 @@ CSS-переменные, которые `Theme.js` выставляет из к
 сверяет `testClarkeScenes`. Цвета α, β и результирующего вектора — ключи
 `clarkeAlpha`, `clarkeBeta`, `clarkeResultant` в `Theme.js`.
 
+**Страница `inverter-game/`** (игра «Ручной инвертор») устроена так же, как
+`park/`: из корня берёт только `Theme.js`, `version.js` и `Updater.js`, тесты —
+`tests/inverter-game-diagnostics.js`. Цвета игры — ключи `game*` в `Theme.js`.
+Уровни — `INVERTER_LEVELS` в `InverterGame.js`; `testLevelsAreWinnable` гоняет
+по каждому бота, поэтому, меняя параметры машины, звена или цель уровня,
+проверять, что он остаётся проходимым. Глобальные имена не должны совпадать с
+функциями p5 (`degrees`, `map`, `random` …): p5 падает при загрузке.
+
 ## Версия
 
 `version.js` руками не правят: его переписывает `.githooks/pre-commit` при

@@ -76,6 +76,16 @@ const DARK_PALETTE = {
   clarkeAlpha: [255, 146, 48],
   clarkeBeta: [226, 104, 236],
   clarkeResultant: [236, 240, 247],
+  // Игра «Ручной инвертор» (inverter-game/): включённый ключ светится
+  // янтарным, выключенный сливается с подложкой; шины звена — нейтральный
+  // серый; полоса допуска цели и признаки победы — зелёные, защиты — красные.
+  gameSwitchOn: [255, 196, 64],
+  gameSwitchOff: [52, 62, 78],
+  gameBus: [150, 165, 186],
+  gameTargetBand: [112, 214, 155, 50],
+  gameDanger: [245, 98, 88],
+  gameSuccess: [112, 214, 155],
+  gameCarrier: [160, 172, 190],
   // Обводка проекций: тон фона машины, чтобы стрелка отделялась от ротора.
   componentHalo: [18, 22, 30, 200],
   vectorCurrent: [73, 220, 232],
@@ -200,6 +210,13 @@ const LIGHT_PALETTE = {
   clarkeAlpha: [206, 98, 0],
   clarkeBeta: [160, 40, 170],
   clarkeResultant: [30, 36, 48],
+  gameSwitchOn: [214, 140, 0],
+  gameSwitchOff: [200, 207, 219],
+  gameBus: [90, 102, 122],
+  gameTargetBand: [31, 122, 77, 45],
+  gameDanger: [190, 40, 32],
+  gameSuccess: [31, 122, 77],
+  gameCarrier: [100, 112, 132],
   componentHalo: [255, 255, 255, 225],
   vectorCurrent: [10, 130, 150],
   vectorCurrentReference: [10, 130, 150, 110],

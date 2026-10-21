@@ -19,7 +19,7 @@
   },
   "scripts": {
     "prepare": "git config core.hooksPath .githooks",
-    "test": "node tests/run-diagnostics.js && node tests/park-diagnostics.js && node tests/clarke-diagnostics.js",
+    "test": "node tests/run-diagnostics.js && node tests/park-diagnostics.js && node tests/clarke-diagnostics.js && node tests/inverter-game-diagnostics.js",
     "sketch:start": "electron .",
     "app:pack": "electron-builder"
   },

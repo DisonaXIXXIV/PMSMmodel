@@ -77,6 +77,15 @@ function testClarkeScenes() {
   check(none.layout.length === 1 && none.layout[0] === "plane", "overview without graphs keeps the plane");
 }
 
+// Скорость по умолчанию попадает в диапазон ползунка и ложится на его шаг.
+function testClarkeSpeed() {
+  check(CLARKE_SPEED_MINIMUM > 0, "speed slider does not reach zero, pause stops time");
+  check(CLARKE_DEFAULT_SPEED >= CLARKE_SPEED_MINIMUM && CLARKE_DEFAULT_SPEED <= CLARKE_SPEED_MAXIMUM,
+    "default speed within slider range");
+  let steps = (CLARKE_DEFAULT_SPEED - CLARKE_SPEED_MINIMUM) / CLARKE_SPEED_STEP;
+  check(Math.abs(steps - Math.round(steps)) < 1e-6, "default speed lies on a slider step");
+}
+
 // Переход проходит путь 0 → 1 ровно за свою длительность и не перескакивает.
 function testClarkeApproach() {
   let value = 0;
@@ -134,6 +143,7 @@ testClarkePhases();
 testClarkeTransform();
 testClarkePhaseVectors();
 testClarkeScenes();
+testClarkeSpeed();
 testClarkeApproach();
 testClarkeTrail();
 testClarkeLayout();

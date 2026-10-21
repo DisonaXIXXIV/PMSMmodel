@@ -9,6 +9,7 @@ const clarke = {
   // сбрасывается, а на паузе стоит.
   theta: 0.0,
   paused: false,
+  speed: CLARKE_DEFAULT_SPEED,
   morph: {},
   layers: Object.assign({}, CLARKE_DEFAULT_LAYERS),
   trail: new Array(CLARKE_TRAIL_BINS).fill(false),
@@ -74,7 +75,7 @@ function draw() {
 
   if (!clarke.paused && !clarke.scrubbing) {
     let previous = clarke.theta;
-    clarke.theta = clarkeWrapAngle(clarke.theta + 2 * Math.PI * CLARKE_FREQUENCY * frame);
+    clarke.theta = clarkeWrapAngle(clarke.theta + 2 * Math.PI * clarke.speed * frame);
     if (clarke.morph.trail > 0) clarkeMarkTrail(clarke.trail, previous, clarke.theta);
     controls["time"].value = Math.round(clarke.theta * 180 / Math.PI) % 360;
   }
@@ -94,7 +95,7 @@ function draw() {
 
 function bindControls() {
   for (const id of ["prev", "next", "scene-number", "scene-title", "scene-text", "time",
-    "time-value", "pause", "theme", "layers", "layer-phase-graph", "layer-ab-graph",
+    "time-value", "speed", "speed-value", "pause", "theme", "layers", "layer-phase-graph", "layer-ab-graph",
     "layer-phase-vectors", "layer-resultant", "layer-projections"]) {
     controls[id] = document.getElementById(id);
   }
@@ -117,6 +118,22 @@ function bindControls() {
     clarke.theta = clarkeWrapAngle(Number(time.value) * Math.PI / 180);
     if (clarke.morph.trail > 0) clarkeMarkTrail(clarke.trail, previous, clarke.theta);
   });
+
+  // Скорость меняет только ход времени: угол не прыгает, вектор просто
+  // начинает крутиться медленнее или быстрее с того места, где был.
+  let speed = controls["speed"];
+  speed.min = CLARKE_SPEED_MINIMUM;
+  speed.max = CLARKE_SPEED_MAXIMUM;
+  speed.step = CLARKE_SPEED_STEP;
+  speed.value = clarke.speed;
+  let showSpeed = () => {
+    controls["speed-value"].textContent = clarke.speed.toFixed(2).replace(".", ",") + " об/с";
+  };
+  speed.addEventListener("input", () => {
+    clarke.speed = Number(speed.value);
+    showSpeed();
+  });
+  showSpeed();
 
   // Флажки слоёв общего вида: положение — из состояния, а не из разметки.
   let layerInputs = {

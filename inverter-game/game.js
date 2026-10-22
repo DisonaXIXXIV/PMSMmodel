@@ -811,8 +811,9 @@ function linkScopeRange() {
 
 function speedScopeRange() {
   let goal = game.level.goal;
-  let top = Math.max(Math.abs(game.level.rotor.rpm), goal.rpm || 0, goal.maxRpm || 0, 100) * 1.15;
-  return [-top * 0.15, top];
+  let top = Math.max(Math.abs(game.level.rotor.rpm), Math.abs(goal.rpm || 0), goal.maxRpm || 0, 100) * 1.15;
+  // Реверс уходит в минус — шкала симметричная.
+  return goal.rpm < 0 ? [-top, top] : [-top * 0.15, top];
 }
 
 function speedGoalLines() {

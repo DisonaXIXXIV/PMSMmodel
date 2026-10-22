@@ -145,10 +145,11 @@ function botCurrentReference(state, level) {
   let goal = level.goal;
   let rpm = state.speed * 30 / Math.PI;
   if (goal.type === "hold") return { id: goal.id, iq: goal.iq };
-  if (goal.type === "speed") return { id: 0, iq: 8 };
+  if (goal.type === "speed") return { id: 0, iq: Math.sign(goal.rpm) * 8 };
   if (goal.type === "stop") return { id: 0, iq: rpm > 0 ? -8 : 0 };
   let target = (goal.minRpm + goal.maxRpm) / 2;
-  return { id: 0, iq: Math.max(-8, Math.min(8, 0.05 * (target - rpm) + inverterLoadTorque(state, level) / 0.06)) };
+  let kt = 1.5 * INVERTER_MOTOR.polePairs * INVERTER_MOTOR.magnetFlux;
+  return { id: 0, iq: Math.max(-8, Math.min(8, 0.005 * (target - rpm) + inverterLoadTorque(state, level) / kt)) };
 }
 
 function botDuties(state, level) {
@@ -202,7 +203,7 @@ function testLevelsAreWinnable() {
   }
 }
 
-// Без тормозного ключа рекуперация с 1200 об/мин доводит звено до защиты —
+// Без тормозного ключа рекуперация с 9000 об/мин доводит звено до защиты —
 // иначе у уровня нет смысла.
 function testRegenerationNeedsBrake() {
   let level = inverterLevelById("duty-4");
@@ -212,7 +213,7 @@ function testRegenerationNeedsBrake() {
     inverterAdvance(state, level, INVERTER_PWM_PERIOD);
   }
   check(state.status === "lost" && /Перенапряжение/.test(state.reason),
-    "braking from 1200 rpm without chopper trips on overvoltage: " + state.reason);
+    "braking from 9000 rpm without chopper trips on overvoltage: " + state.reason);
 }
 
 // Подсветка тока: в допуске — inside, у защиты — nearLimit, среднее
@@ -234,6 +235,20 @@ function testCurrentStatus() {
   let other = createInverterState(speedLevel);
   other.iAlpha = 5;
   check(!inverterCurrentStatus(other, speedLevel).inside, "no target band without a current goal");
+}
+
+// На ходу нулевой вектор — короткое замыкание на ЭДС: ток сам доходит до
+// защиты. Об этом предупреждает брифинг «Ротор крутят», поэтому это и
+// проверяется. А реверс одним нулевым вектором не пройти.
+function testZeroVectorWhileSpinning() {
+  let level = inverterLevelById("legs-3");
+  let state = createInverterState(level);
+  inverterAdvance(state, level, 30 * INVERTER_PWM_PERIOD);
+  check(state.status === "lost" && /ток/.test(state.reason), "zero vector at 6000 rpm trips on overcurrent");
+  let reverse = inverterLevelById("legs-reverse");
+  let idle = createInverterState(reverse);
+  inverterAdvance(idle, reverse, reverse.limitPeriods * INVERTER_PWM_PERIOD + INVERTER_STEP);
+  check(idle.status === "lost", "reverse level is not won by doing nothing: " + idle.reason);
 }
 
 function testLevels() {
@@ -299,6 +314,7 @@ testDutyModulation();
 testBrakeChopper();
 testProtections();
 testLevels();
+testZeroVectorWhileSpinning();
 testCurrentStatus();
 testEventSchedule();
 testLevelsAreWinnable();

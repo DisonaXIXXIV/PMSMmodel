@@ -488,20 +488,34 @@ function drawCard(area, title) {
   textStyle(NORMAL);
 }
 
-function drawArrow(x0, y0, x1, y1, entry, weight, alpha) {
+// outline — обводка той же геометрии (линия толще, наконечник с каймой), а не
+// вторая стрелка потолще: у той наконечник крупнее и торчит из-под острия.
+function drawArrow(x0, y0, x1, y1, entry, weight, alpha, outline) {
   let length = Math.hypot(x1 - x0, y1 - y0);
   if (length < 2) return;
   let size = Math.min(6 + weight * 2.2, length);
   let shorten = size * 0.8 / length;
-  strokeTheme(entry, alpha);
-  strokeWeight(weight);
-  line(x0, y0, x1 - (x1 - x0) * shorten, y1 - (y1 - y0) * shorten);
   let angle = Math.atan2(y1 - y0, x1 - x0);
-  noStroke();
-  fillTheme(entry, alpha);
-  triangle(x1, y1,
+  let head = () => triangle(x1, y1,
     x1 - size * Math.cos(angle - 0.4), y1 - size * Math.sin(angle - 0.4),
     x1 - size * Math.cos(angle + 0.4), y1 - size * Math.sin(angle + 0.4));
+  let xs = x1 - (x1 - x0) * shorten;
+  let ys = y1 - (y1 - y0) * shorten;
+  if (outline) {
+    strokeTheme(outline.entry, outline.alpha);
+    strokeWeight(weight + 2 * outline.width);
+    line(x0, y0, xs, ys);
+    strokeWeight(2 * outline.width);
+    strokeJoin(ROUND);
+    fillTheme(outline.entry, outline.alpha);
+    head();
+  }
+  strokeTheme(entry, alpha);
+  strokeWeight(weight);
+  line(x0, y0, xs, ys);
+  noStroke();
+  fillTheme(entry, alpha);
+  head();
 }
 
 function dashed(pattern) {
@@ -614,18 +628,43 @@ function drawMotor(area) {
     drawArrow(cx, cy, tx, ty, palette.vectorCurrentReference, 3);
   }
 
-  // Ток: обводка цветом фона, чтобы стрелка читалась поверх ротора. Цвет
-  // говорит, где ток: красный — близко к защите (важнее всего), зелёный —
-  // в допуске цели, иначе обычный цвет тока.
+  drawCurrentProjections(cx, cy, toScreen, scale);
+
+  // Ток. Цвет говорит, где ток: красный — близко к защите (важнее всего),
+  // зелёный — в допуске цели, иначе обычный цвет тока.
   let [ix, iy] = toScreen(state.iAlpha, state.iBeta, scale);
   let currentEntry = status.nearLimit ? palette.gameDanger
     : status.inside ? palette.gameSuccess : palette.vectorCurrent;
   // У защиты стрелка толще: красная поверх красной половины ротора иначе теряется.
   let weight = status.nearLimit ? 4.5 : 3.5;
-  drawArrow(cx, cy, ix, iy, palette.componentHalo, weight + 3.5);
   drawArrow(cx, cy, ix, iy, currentEntry, weight);
 
   drawMotorReadouts(area, cx + radius * 1.25);
+}
+
+// Проекции тока на d и q: штрих от конца вектора к оси и тонкая стрелка
+// составляющей вдоль оси. Прозрачность — inverterProjectionOpacity. Стрелки
+// с каймой цвета фона: красная iq на северной половине ротора иначе пропадает.
+function drawCurrentProjections(cx, cy, toScreen, scale) {
+  let palette = theme();
+  let state = game.state;
+  let dq = inverterPark(state.iAlpha, state.iBeta, state.angle);
+  let alpha = 255 * inverterProjectionOpacity(dq.d, dq.q);
+  if (alpha < 1) return;
+  let c = Math.cos(state.angle);
+  let s = Math.sin(state.angle);
+  let [tx, ty] = toScreen(state.iAlpha, state.iBeta, scale);
+  let feet = [[dq.d * c, dq.d * s, palette.componentD], [-dq.q * s, dq.q * c, palette.componentQ]];
+  for (const [fa, fb, entry] of feet) {
+    let [fx, fy] = toScreen(fa, fb, scale);
+    strokeTheme(entry, alpha);
+    strokeWeight(1.2);
+    dashed([4, 4]);
+    line(tx, ty, fx, fy);
+    dashed();
+    let outline = { entry: palette.componentHalo, alpha: palette.componentHalo[3] * alpha / 255, width: 1.5 };
+    drawArrow(cx, cy, fx, fy, entry, 2, alpha, outline);
+  }
 }
 
 function drawAxisLine(toScreen, angle, length, entry, label) {

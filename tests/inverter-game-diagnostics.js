@@ -251,6 +251,17 @@ function testZeroVectorWhileSpinning() {
   check(idle.status === "lost", "reverse level is not won by doing nothing: " + idle.reason);
 }
 
+// Проекции на d, q: не видны на осях и у маленького тока, сильнее всего на
+// 45°, и там не плотнее INVERTER_PROJECTION_OPACITY.
+function testProjectionOpacity() {
+  check(inverterProjectionOpacity(5, 0) === 0 && inverterProjectionOpacity(0, -5) === 0, "no projections on an axis");
+  check(near(inverterProjectionOpacity(4, 4), INVERTER_PROJECTION_OPACITY, 1e-12), "full projection opacity at 45 degrees");
+  check(inverterProjectionOpacity(5, 1) < inverterProjectionOpacity(5, 3), "projections grow away from the axis");
+  check(inverterProjectionOpacity(0.3, 0.3) === 0, "no projections for a tiny current");
+  check(inverterProjectionOpacity(0.7, 0.7) > 0 && inverterProjectionOpacity(0.7, 0.7) < INVERTER_PROJECTION_OPACITY,
+    "projections fade in with amplitude");
+}
+
 function testLevels() {
   let ids = new Set();
   for (const level of INVERTER_LEVELS) {
@@ -314,6 +325,7 @@ testDutyModulation();
 testBrakeChopper();
 testProtections();
 testLevels();
+testProjectionOpacity();
 testZeroVectorWhileSpinning();
 testCurrentStatus();
 testEventSchedule();

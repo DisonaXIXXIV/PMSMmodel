@@ -454,6 +454,28 @@ function inverterHoldOk(goal, entry) {
   return Math.abs(entry.id - goal.id) <= goal.tolerance && Math.abs(entry.iq - goal.iq) <= goal.tolerance;
 }
 
+// Непрозрачность проекций тока на d и q на картинке машины, от 0 до 1. Когда
+// ток лежит на оси, проекции повторяют сам вектор и только мешают, поэтому
+// их не видно; сильнее всего они на 45° — но и там полупрозрачные
+// (INVERTER_PROJECTION_OPACITY). Плотнее 0,75 не нужно — проекции не
+// должны спорить с самим вектором, а при 0,25 они пропадают на красной и
+// синей половинах ротора. Маленький ток —
+// меньше INVERTER_PROJECTION_MIN_CURRENT — проекций не даёт вовсе, к
+// INVERTER_PROJECTION_FULL_CURRENT они проявляются полностью.
+const INVERTER_PROJECTION_OPACITY = 0.75;
+const INVERTER_PROJECTION_MIN_CURRENT = 0.5;
+const INVERTER_PROJECTION_FULL_CURRENT = 1.5;
+
+function inverterProjectionOpacity(id, iq) {
+  let magnitude = Math.hypot(id, iq);
+  if (magnitude <= INVERTER_PROJECTION_MIN_CURRENT) return 0;
+  let amplitude = Math.min(1, (magnitude - INVERTER_PROJECTION_MIN_CURRENT)
+    / (INVERTER_PROJECTION_FULL_CURRENT - INVERTER_PROJECTION_MIN_CURRENT));
+  // |sin 2φ| = 2·|id·iq|/|i|²: нуль на осях, единица на 45°.
+  let offAxis = 2 * Math.abs(id * iq) / (magnitude * magnitude);
+  return INVERTER_PROJECTION_OPACITY * amplitude * offAxis;
+}
+
 // Ток относительно цели и защиты — для подсветки на картинке машины.
 // inside — мгновенный ток в допуске; averageInside — среднее за текущий
 // период в допуске, а по нему период и засчитают; nearLimit — фазный ток

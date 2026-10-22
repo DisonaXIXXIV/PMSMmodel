@@ -8,6 +8,12 @@
 // паспорта: постоянная времени обмотки L/R = 5 мс — это 10 периодов, разгон —
 // десятки периодов. С инерцией настоящего привода разгон шёл бы часами.
 //
+// Скорости уровней с вращением — тысячи оборотов в минуту: на электрический
+// оборот приходится 13–20 периодов ШИМ, и ротор поворачивается на 18–27° за
+// период. Медленнее — и при 5 с на период вращения не видно: на 600 об/мин
+// ротор шёл бы 0,4°/с. Под такие скорости ψf и J взяты маленькими, иначе ЭДС
+// не поместилась бы в 48 В, а разгон не уложился бы в десятки периодов.
+//
 // Машина неявнополюсная, с одной парой полюсов: электрический угол совпадает с
 // механическим, и ось d на картинке — это просто северный полюс ротора.
 // Преобразование Кларк амплитудно-инвариантное (коэффициент 2/3): длина
@@ -25,15 +31,15 @@ const INVERTER_DEFAULT_TEMPO = 1;
 const INVERTER_MOTOR = {
   resistance: 0.2,
   inductance: 1e-3,
-  magnetFlux: 0.04,
+  magnetFlux: 0.012,
   polePairs: 1,
-  inertia: 1e-4,
-  viscousFriction: 2e-5,
+  inertia: 2e-6,
+  viscousFriction: 1e-6,
 };
 
 // Звено: выпрямитель (источник с внутренним сопротивлением за диодом — назад
 // он ток не принимает), конденсатор и тормозной ключ с резистором. Ёмкость
-// маленькая нарочно: энергии торможения с 1200 об/мин хватает, чтобы без
+// маленькая нарочно: энергии торможения с 9000 об/мин хватает, чтобы без
 // тормозного ключа дойти до защиты.
 const INVERTER_LINK = {
   sourceVoltage: 48,
@@ -66,7 +72,8 @@ function inverterDegrees(value) {
 
 // Уровни. Порядок внутри режима — порядок в меню. Цели:
 //   hold    — держать средние за период id, iq в допуске periods периодов подряд;
-//   speed   — разогнать до rpm (среднее за период);
+//   speed   — разогнать до rpm (среднее за период); отрицательная rpm — в
+//             обратную сторону, до n ≤ rpm;
 //   stop    — затормозить до |n| < rpm;
 //   survive — продержаться periods периодов, не выпустив скорость из полосы.
 // limitPeriods — сколько периодов даётся на всё.
@@ -92,31 +99,36 @@ const INVERTER_LEVELS = [
   },
   {
     id: "legs-3", mode: INVERTER_MODE_LEGS, title: "Ротор крутят",
-    summary: "Внешний привод крутит ротор на 300 об/мин. Держите iq = 5 А.",
-    brief: "Ротор вращается с постоянной скоростью — его держит внешний привод. "
-      + "Ось q уходит, а ЭДС вращения ψf·ω добавляет к нужному напряжению ещё "
-      + "≈1,3 В по оси q.",
-    rotor: { angle: inverterDegrees(-20), rpm: 300, fixed: true },
+    summary: "Внешний привод крутит ротор на 6000 об/мин. Держите iq = 5 А.",
+    brief: "Ротор вращается с постоянной скоростью — его держит внешний привод: "
+      + "18° за период, оборот за 20 периодов. Ось q уходит, так что вектор "
+      + "придётся вести за ней, а ЭДС вращения ψf·ω добавляет к нужному "
+      + "напряжению ещё ≈7,5 В по оси q. Осторожно: нулевой вектор теперь — "
+      + "короткое замыкание обмотки на ЭДС, и ток за несколько периодов сам "
+      + "дойдёт до защиты. Сидеть на 000 нельзя.",
+    rotor: { angle: inverterDegrees(-20), rpm: 6000, fixed: true },
     goal: { type: "hold", id: 0, iq: 5, tolerance: 1, periods: 10 },
     limitPeriods: 120,
   },
   {
     id: "legs-4", mode: INVERTER_MODE_LEGS, title: "Разгон",
-    summary: "Разгоните свободный ротор до 300 об/мин.",
-    brief: "Ротор свободен, на валу небольшая нагрузка 0,05 Н·м. Момент даёт "
+    summary: "Разгоните свободный ротор до 6000 об/мин.",
+    brief: "Ротор свободен, на валу небольшая нагрузка 0,005 Н·м. Момент даёт "
       + "только iq, и ось q всё время уходит вперёд — догоняйте её.",
-    rotor: { angle: 0, rpm: 0, fixed: false, load: 0.05 },
-    goal: { type: "speed", rpm: 300 },
+    rotor: { angle: 0, rpm: 0, fixed: false, load: 0.005 },
+    goal: { type: "speed", rpm: 6000 },
     limitPeriods: 120,
   },
   {
-    id: "legs-5", mode: INVERTER_MODE_LEGS, title: "Тормоз",
-    summary: "Остановите ротор с 300 об/мин быстрее, чем выбег.",
-    brief: "Ротор крутится на 300 об/мин. Сам он остановится через ~130 периодов, "
-      + "а у вас 60. Отрицательный iq тормозит — энергия идёт в звено.",
-    rotor: { angle: 0, rpm: 300, fixed: false, load: 0.05 },
-    goal: { type: "stop", rpm: 30 },
-    limitPeriods: 60,
+    id: "legs-reverse", mode: INVERTER_MODE_LEGS, title: "Реверс",
+    summary: "Ротор крутится на 3000 об/мин. Разгоните его до −3000.",
+    brief: "Нулевой вектор ротор и сам затормозит — короткое замыкание на ЭДС, — "
+      + "но назад не раскрутит. Отрицательный iq тормозит, отдавая энергию в "
+      + "звено, а после нуля разгоняет в обратную сторону. Ось q при этом "
+      + "останавливается и идёт назад.",
+    rotor: { angle: 0, rpm: 3000, fixed: false, load: 0.005 },
+    goal: { type: "speed", rpm: -3000 },
+    limitPeriods: 80,
   },
   {
     id: "duty-1", mode: INVERTER_MODE_DUTY, title: "Уставки",
@@ -130,44 +142,44 @@ const INVERTER_LEVELS = [
   },
   {
     id: "duty-2", mode: INVERTER_MODE_DUTY, title: "Вращение",
-    summary: "Внешний привод крутит ротор на 600 об/мин. Держите iq = 5 А.",
-    brief: "Ось q поворачивается на 1,8° за период, ЭДС — около 2,5 В. "
-      + "Уставки придётся двигать постоянно.",
-    rotor: { angle: 0, rpm: 600, fixed: true },
+    summary: "Внешний привод крутит ротор на 9000 об/мин. Держите iq = 5 А.",
+    brief: "Ось q поворачивается на 27° за период — оборот за 13 периодов, ЭДС "
+      + "около 11 В. Уставки придётся двигать каждый период.",
+    rotor: { angle: 0, rpm: 9000, fixed: true },
     goal: { type: "hold", id: 0, iq: 5, tolerance: 0.7, periods: 30 },
     limitPeriods: 150,
   },
   {
-    id: "duty-3", mode: INVERTER_MODE_DUTY, title: "Разгон до 1000",
-    summary: "Разгоните свободный ротор до 1000 об/мин.",
-    brief: "Свободный ротор, нагрузка 0,05 Н·м. Чем быстрее ротор, тем больше "
+    id: "duty-3", mode: INVERTER_MODE_DUTY, title: "Разгон до 9000",
+    summary: "Разгоните свободный ротор до 9000 об/мин.",
+    brief: "Свободный ротор, нагрузка 0,005 Н·м. Чем быстрее ротор, тем больше "
       + "ЭДС и тем больше напряжения уходит просто на то, чтобы ток не падал.",
-    rotor: { angle: 0, rpm: 0, fixed: false, load: 0.05 },
-    goal: { type: "speed", rpm: 1000 },
+    rotor: { angle: 0, rpm: 0, fixed: false, load: 0.005 },
+    goal: { type: "speed", rpm: 9000 },
     limitPeriods: 160,
   },
   {
     id: "duty-4", mode: INVERTER_MODE_DUTY, title: "Рекуперация",
-    summary: "Остановите ротор с 1200 об/мин, не перегрев звено.",
+    summary: "Остановите ротор с 9000 об/мин, не перегрев звено.",
     brief: "При торможении энергия ротора уходит в конденсатор звена, а "
       + "выпрямитель назад её не примет. Выше 60 В — защита. Тормозной ключ "
       + "(клавиша B) сливает её в резистор.",
-    rotor: { angle: 0, rpm: 1200, fixed: false, load: 0.05 },
-    goal: { type: "stop", rpm: 50 },
+    rotor: { angle: 0, rpm: 9000, fixed: false, load: 0.005 },
+    goal: { type: "stop", rpm: 500 },
     limitPeriods: 160,
   },
   {
     id: "duty-5", mode: INVERTER_MODE_DUTY, title: "Смена",
-    summary: "Продержите 500–1100 об/мин 120 периодов. Будут сюрпризы.",
-    brief: "Ротор крутится на 800 об/мин. За смену случатся наброс нагрузки, "
+    summary: "Продержите 5000–10000 об/мин 120 периодов. Будут сюрпризы.",
+    brief: "Ротор крутится на 7500 об/мин. За смену случатся наброс нагрузки, "
       + "провал сети и нагрузка, которая сама крутит вал. Скорость должна "
       + "оставаться в полосе, а ток и напряжение звена — в пределах.",
-    rotor: { angle: 0, rpm: 800, fixed: false, load: 0.05 },
-    goal: { type: "survive", minRpm: 500, maxRpm: 1100, periods: 120 },
+    rotor: { angle: 0, rpm: 7500, fixed: false, load: 0.005 },
+    goal: { type: "survive", minRpm: 5000, maxRpm: 10000, periods: 120 },
     events: [
-      { type: "load", torque: 0.3, duration: 25, title: "Наброс нагрузки" },
+      { type: "load", torque: 0.06, duration: 25, title: "Наброс нагрузки" },
       { type: "sag", voltage: 36, duration: 25, title: "Провал сети" },
-      { type: "load", torque: -0.2, duration: 25, title: "Нагрузка крутит вал" },
+      { type: "load", torque: -0.04, duration: 25, title: "Нагрузка крутит вал" },
     ],
     limitPeriods: 120,
   },
@@ -471,7 +483,7 @@ function judgePeriod(state, level, entry) {
       return;
     }
   } else if (goal.type === "speed") {
-    if (entry.rpm >= goal.rpm) {
+    if (goal.rpm >= 0 ? entry.rpm >= goal.rpm : entry.rpm <= goal.rpm) {
       inverterWin(state, "Скорость " + Math.round(entry.rpm) + " об/мин за " + state.periodIndex + " периодов.");
       return;
     }
@@ -511,7 +523,9 @@ function inverterGoalProgress(state, level) {
   }
   if (goal.type === "speed") {
     let rpm = last ? last.rpm : state.speed / RPM;
-    return { text: Math.round(rpm) + " / " + goal.rpm + " об/мин", fraction: Math.max(0, rpm / goal.rpm) };
+    let start = level.rotor.rpm;
+    return { text: Math.round(rpm) + " / " + goal.rpm + " об/мин",
+      fraction: Math.min(1, Math.max(0, (rpm - start) / (goal.rpm - start))) };
   }
   if (goal.type === "stop") {
     let start = Math.abs(level.rotor.rpm);
@@ -529,7 +543,9 @@ function inverterGoalText(level) {
     return "id = " + goal.id + " А, iq = " + goal.iq + " А ± " + goal.tolerance + " А (среднее за период), "
       + goal.periods + " периодов подряд";
   }
-  if (goal.type === "speed") return "n ≥ " + goal.rpm + " об/мин";
+  if (goal.type === "speed") {
+    return (goal.rpm >= 0 ? "n ≥ " : "n ≤ ") + String(goal.rpm).replace("-", "−") + " об/мин";
+  }
   if (goal.type === "stop") return "|n| < " + goal.rpm + " об/мин";
   return goal.minRpm + " ≤ n ≤ " + goal.maxRpm + " об/мин, " + goal.periods + " периодов";
 }

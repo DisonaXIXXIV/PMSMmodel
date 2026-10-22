@@ -45,6 +45,9 @@ const INVERTER_LINK = {
 };
 
 const INVERTER_CURRENT_LIMIT = 15;
+// Доля защиты, с которой ток на картинке краснеет: предупреждение до того,
+// как защита сработает.
+const INVERTER_CURRENT_WARNING = 0.8;
 
 // Сколько периодов помнят осциллограммы: мгновенные значения и средние.
 const INVERTER_FINE_PERIODS = 4;
@@ -84,7 +87,7 @@ const INVERTER_LEVELS = [
     brief: "Теперь ток нужен по оси q — поперёк магнитов. Ни один вектор "
       + "инвертора не лежит точно на q: придётся чередовать два соседних.",
     rotor: { angle: inverterDegrees(40), rpm: 0, fixed: true },
-    goal: { type: "hold", id: 0, iq: 5, tolerance: 1, periods: 15 },
+    goal: { type: "hold", id: 0, iq: 5, tolerance: 1, periods: 10 },
     limitPeriods: 100,
   },
   {
@@ -94,7 +97,7 @@ const INVERTER_LEVELS = [
       + "Ось q уходит, а ЭДС вращения ψf·ω добавляет к нужному напряжению ещё "
       + "≈1,3 В по оси q.",
     rotor: { angle: inverterDegrees(-20), rpm: 300, fixed: true },
-    goal: { type: "hold", id: 0, iq: 5, tolerance: 1, periods: 20 },
+    goal: { type: "hold", id: 0, iq: 5, tolerance: 1, periods: 10 },
     limitPeriods: 120,
   },
   {
@@ -122,7 +125,7 @@ const INVERTER_LEVELS = [
       + "выше пилы (симметричная, начало и конец периода — вершины). Уставки "
       + "применяются сразу. Одинаковые уставки — нулевой вектор.",
     rotor: { angle: inverterDegrees(70), rpm: 0, fixed: true },
-    goal: { type: "hold", id: 0, iq: 5, tolerance: 0.7, periods: 20 },
+    goal: { type: "hold", id: 0, iq: 5, tolerance: 0.7, periods: 10 },
     limitPeriods: 100,
   },
   {
@@ -437,6 +440,25 @@ function finishPeriod(state, level) {
 
 function inverterHoldOk(goal, entry) {
   return Math.abs(entry.id - goal.id) <= goal.tolerance && Math.abs(entry.iq - goal.iq) <= goal.tolerance;
+}
+
+// Ток относительно цели и защиты — для подсветки на картинке машины.
+// inside — мгновенный ток в допуске; averageInside — среднее за текущий
+// период в допуске, а по нему период и засчитают; nearLimit — фазный ток
+// выше INVERTER_CURRENT_WARNING от защиты. Без цели по току inside и
+// averageInside ложны.
+function inverterCurrentStatus(state, level) {
+  let phases = inverterPhaseCurrents(state.iAlpha, state.iBeta);
+  let peak = Math.max(Math.abs(phases.a), Math.abs(phases.b), Math.abs(phases.c));
+  let status = { inside: false, averageInside: false, nearLimit: peak > INVERTER_CURRENT_LIMIT * INVERTER_CURRENT_WARNING };
+  let goal = level.goal;
+  if (goal.type !== "hold") return status;
+  let now = inverterPark(state.iAlpha, state.iBeta, state.angle);
+  status.inside = inverterHoldOk(goal, { id: now.d, iq: now.q });
+  if (state.sum.duration > 0) {
+    status.averageInside = inverterHoldOk(goal, { id: state.sum.id / state.sum.duration, iq: state.sum.iq / state.sum.duration });
+  }
+  return status;
 }
 
 function judgePeriod(state, level, entry) {

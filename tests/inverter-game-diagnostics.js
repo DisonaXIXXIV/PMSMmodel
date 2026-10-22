@@ -215,6 +215,27 @@ function testRegenerationNeedsBrake() {
     "braking from 1200 rpm without chopper trips on overvoltage: " + state.reason);
 }
 
+// Подсветка тока: в допуске — inside, у защиты — nearLimit, среднее
+// периода — averageInside; без цели по току зелёного не бывает.
+function testCurrentStatus() {
+  let level = levelWith({ goal: { type: "hold", id: 5, iq: 0, tolerance: 1, periods: 10 } });
+  let state = createInverterState(level);
+  check(!inverterCurrentStatus(state, level).inside, "zero current is outside the 5 A target");
+  state.iAlpha = 5.4;
+  let status = inverterCurrentStatus(state, level);
+  check(status.inside && !status.nearLimit, "current within tolerance is inside and not near limit");
+  check(!status.averageInside, "no average before the period has started");
+  inverterAdvance(state, level, 10e-6);
+  check(inverterCurrentStatus(state, level).averageInside, "average of a held current is inside");
+  state.iAlpha = 13;
+  status = inverterCurrentStatus(state, level);
+  check(status.nearLimit && !status.inside, "13 A is near the 15 A protection");
+  let speedLevel = levelWith({ goal: { type: "speed", rpm: 300 } });
+  let other = createInverterState(speedLevel);
+  other.iAlpha = 5;
+  check(!inverterCurrentStatus(other, speedLevel).inside, "no target band without a current goal");
+}
+
 function testLevels() {
   let ids = new Set();
   for (const level of INVERTER_LEVELS) {
@@ -278,6 +299,7 @@ testDutyModulation();
 testBrakeChopper();
 testProtections();
 testLevels();
+testCurrentStatus();
 testEventSchedule();
 testLevelsAreWinnable();
 testRegenerationNeedsBrake();

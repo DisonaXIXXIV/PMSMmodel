@@ -530,11 +530,24 @@ function drawMotor(area) {
   let cy = area.y + area.h / 2 + 8;
   let radius = Math.max(20, Math.min(area.w * 0.36, (area.h - 40) / 2));
   let toScreen = (x, y, scale) => [cx + x * scale, cy - y * scale];
+  let status = inverterCurrentStatus(state, game.level);
 
   // Статор: ярмо, расточка и оси фаз.
   noStroke();
   fillTheme(palette.statorYoke);
   circle(cx, cy, radius * 2);
+  // Зелёная рамка вокруг статора: среднее за текущий период в допуске, то
+  // есть период, если так и останется, будет засчитан.
+  if (status.averageInside) {
+    noFill();
+    strokeTheme(palette.gameSuccess, 70);
+    strokeWeight(12);
+    circle(cx, cy, radius * 2 + 12);
+    strokeTheme(palette.gameSuccess);
+    strokeWeight(4);
+    circle(cx, cy, radius * 2 + 8);
+    noStroke();
+  }
   fillTheme(palette.statorBore);
   circle(cx, cy, radius * 1.56);
   let phases = inverterPhaseCurrents(state.iAlpha, state.iBeta);
@@ -592,19 +605,25 @@ function drawMotor(area) {
     let ra = goal.id * c - goal.iq * s;
     let rb = goal.id * s + goal.iq * c;
     let [tx, ty] = toScreen(ra, rb, scale);
-    fillTheme(palette.gameTargetBand);
+    fillTheme(palette.gameTargetBand, status.inside ? 120 : undefined);
     strokeTheme(palette.gameSuccess, 160);
-    strokeWeight(1.2);
+    strokeWeight(status.inside ? 2 : 1.2);
     dashed([4, 4]);
     circle(tx, ty, goal.tolerance * scale * 2);
     dashed();
     drawArrow(cx, cy, tx, ty, palette.vectorCurrentReference, 3);
   }
 
-  // Ток: обводка цветом фона, чтобы стрелка читалась поверх ротора.
+  // Ток: обводка цветом фона, чтобы стрелка читалась поверх ротора. Цвет
+  // говорит, где ток: красный — близко к защите (важнее всего), зелёный —
+  // в допуске цели, иначе обычный цвет тока.
   let [ix, iy] = toScreen(state.iAlpha, state.iBeta, scale);
-  drawArrow(cx, cy, ix, iy, palette.componentHalo, 7);
-  drawArrow(cx, cy, ix, iy, palette.vectorCurrent, 3.5);
+  let currentEntry = status.nearLimit ? palette.gameDanger
+    : status.inside ? palette.gameSuccess : palette.vectorCurrent;
+  // У защиты стрелка толще: красная поверх красной половины ротора иначе теряется.
+  let weight = status.nearLimit ? 4.5 : 3.5;
+  drawArrow(cx, cy, ix, iy, palette.componentHalo, weight + 3.5);
+  drawArrow(cx, cy, ix, iy, currentEntry, weight);
 
   drawMotorReadouts(area, cx + radius * 1.25);
 }

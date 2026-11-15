@@ -6,16 +6,16 @@
 // Расчёт — в ParkTransform.js, здесь только состояние, панель и рисование.
 
 const park = {
-  amplitude: PARK_DEFAULT_AMPLITUDE,
-  vectorSpeed: PARK_DEFAULT_VECTOR_SPEED,
-  frameSpeed: PARK_DEFAULT_FRAME_SPEED,
+  amplitude: window.PARK_PRESET?.amplitude ?? PARK_DEFAULT_AMPLITUDE,
+  vectorSpeed: window.PARK_PRESET?.vectorSpeed ?? PARK_DEFAULT_VECTOR_SPEED,
+  frameSpeed: window.PARK_PRESET?.frameSpeed ?? PARK_DEFAULT_FRAME_SPEED,
   vectorAngle: 0.0,
   frameAngle: 0.0,
   showAlphaBeta: true,
   showUv: true,
   // Оси u–v можно убрать целиком, вместе с проекциями на них: тогда на
   // картинке остаётся только вектор в α–β, с чего объяснение и начинается.
-  showFrame: false,
+  showFrame: window.PARK_PRESET?.showFrame ?? false,
   paused: false,
   // Модельное время и отсчёты для осциллограмм. Время своё, а не millis():
   // на паузе оно стоит, и осциллограммы замирают вместе с вектором.

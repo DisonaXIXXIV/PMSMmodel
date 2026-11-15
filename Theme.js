@@ -345,9 +345,8 @@ function cssColor(entry) {
     + (alpha / 255).toFixed(3) + ")";
 }
 
-// Установка темы. remember = false — для тех случаев, когда тема выбрана не
-// человеком, а системной настройкой: такой выбор запоминать нельзя, иначе
-// программа перестала бы следовать системе после первого же запуска.
+// Тему из системы или ссылки не запоминаем: встраивание в светлую страницу
+// не должно менять предпочтение пользователя для остальных страниц сайта.
 function setTheme(name, remember = true) {
   let resolved = name === THEME_LIGHT ? THEME_LIGHT : THEME_DARK;
   let changed = resolved !== activeThemeName;
@@ -361,15 +360,22 @@ function toggleTheme() {
   setTheme(isLightTheme() ? THEME_DARK : THEME_LIGHT);
 }
 
-// Пока пользователь не выбрал тему сам, программа следует системной, включая
-// её переключение на ходу. Явный выбор запоминается и системную перекрывает.
+// Ссылка для iframe задаёт тему независимо от настроек телефона. Без неё
+// сохраняется прежний порядок: выбор пользователя, затем системная тема.
+function requestedThemePreference() {
+  if (typeof window === "undefined" || !window.location) return null;
+  let requested = new URLSearchParams(window.location.search).get("theme");
+  return requested === THEME_LIGHT || requested === THEME_DARK ? requested : null;
+}
+
 function initialiseTheme() {
+  let requested = requestedThemePreference();
   let stored = storedThemePreference();
-  setTheme(stored === null ? systemThemeName() : stored, false);
+  setTheme(requested ?? stored ?? systemThemeName(), false);
   if (typeof window === "undefined" || !window.matchMedia) return;
   let query = window.matchMedia("(prefers-color-scheme: light)");
   let follow = () => {
-    if (storedThemePreference() === null) setTheme(systemThemeName(), false);
+    if (requested === null && storedThemePreference() === null) setTheme(systemThemeName(), false);
   };
   if (query.addEventListener) query.addEventListener("change", follow);
   else if (query.addListener) query.addListener(follow);

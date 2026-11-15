@@ -57,3 +57,63 @@ for (const file of ["version.js", "Theme.js", "MathUtils.js", "MotorModel.js", "
 
 // Ненулевой код возврата при ошибках: так npm test падает, а не просто печатает.
 process.exitCode = runSimulationDiagnostics() === 0 ? 0 : 1;
+
+// Изолируем браузерные настройки: тема iframe не должна зависеть от тёмной
+// темы телефона, старого выбора или доступности хранилища в чужом iframe.
+const assert = require("node:assert/strict");
+const themeSource = fs.readFileSync(path.join(root, "Theme.js"), "utf8");
+for (const [search, stored, systemLight, storageBlocked] of [
+  ["?theme=light", "dark", false, false],
+  ["?theme=dark", "light", true, false],
+  ["?theme=light", null, false, true],
+  ["?theme=light", null, false, false],
+  ["?theme=dark", null, true, false],
+  ["?theme=unknown", "light", false, false],
+  ["?theme=", "dark", true, false],
+  ["", null, true, false],
+  ["", null, false, false],
+  ["", "light", false, false],
+]) {
+  let preference = stored;
+  let appliedTheme;
+  let onSystemChange;
+  const media = {
+    matches: systemLight,
+    addEventListener: (_event, callback) => { onSystemChange = callback; },
+  };
+  const context = vm.createContext({
+    URLSearchParams,
+    window: {
+      location: { search },
+      matchMedia: () => media,
+      localStorage: {
+        getItem: () => {
+          if (storageBlocked) throw new Error("Storage is unavailable");
+          return preference;
+        },
+        setItem: (_key, value) => { preference = value; },
+      },
+    },
+    document: {
+      documentElement: {
+        setAttribute: (_key, value) => { appliedTheme = value; },
+        style: { setProperty() {} },
+      },
+    },
+  });
+  vm.runInContext(themeSource, context, { filename: "Theme.js" });
+  const parameter = new URLSearchParams(search).get("theme");
+  const requested = ["light", "dark"].includes(parameter) ? parameter : null;
+  const expected = requested ?? stored ?? (systemLight ? "light" : "dark");
+  assert.equal(appliedTheme, expected, "initial theme: " + search);
+  assert.equal(preference, stored, "opening a link preserves the saved theme");
+  media.matches = !systemLight;
+  onSystemChange();
+  assert.equal(appliedTheme, requested ?? stored ?? (!systemLight ? "light" : "dark"),
+    "system changes respect the URL and saved preference");
+  vm.runInContext("toggleTheme()", context);
+  assert.equal(appliedTheme, preference, "the theme button still works");
+  vm.runInContext("initialiseTheme()", context);
+  if (requested) assert.equal(appliedTheme, requested, "reopening reapplies the URL theme");
+}
+console.log("PASS: URL themes override system and saved themes without changing stored preferences");

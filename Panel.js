@@ -149,7 +149,8 @@ function motorParameterSliderDescriptions(machineType = MACHINE_PMSM) {
     { setting: "magnetFlux", label: "Потокосцепление магнитов", unit: " Вб",
       minimum: 0.2, maximum: 2.5, step: 0.05, decimals: 2, target: "parameters" },
     { setting: "inertia", label: "Момент инерции", unit: " кг·м²",
-      minimum: 0.01, maximum: 1.0, step: 0.005, decimals: 3, target: "parameters" },
+      minimum: 0.01, maximum: MAXIMUM_PMSM_INERTIA,
+      step: 0.005, decimals: 3, target: "parameters" },
   ];
 }
 
@@ -181,12 +182,15 @@ function inductionParameterSliderDescriptions() {
 // пропорциональны ему (см. ControlSettings): изменив J, их приходится менять
 // следом, и без этой оговорки разъехавшийся переходный процесс выглядел бы
 // ошибкой модели.
-function motorPassportHint(machineType) {
+function motorPassportHint(machineType, defaultInertia = DEFAULT_INERTIA) {
   let passport = machineType === MACHINE_INDUCTION
     ? "Паспорт: Rs 1,20 Ом, Rr 1,00 Ом, Lm 150 мГн, Lσ 3,0 мГн, 0,100 кг·м²."
     : "Паспорт: 1,20 Ом, 6,0 мГн, 1,25 Вб, 0,100 кг·м².";
-  return passport + " Коэффициенты регуляторов настроены под эти значения и при"
+  const tuning = " Коэффициенты регуляторов настроены под эти значения и при"
     + " других требуют пересчёта.";
+  const preset = defaultInertia === DEFAULT_INERTIA ? ""
+    : " При запуске и сбросе J = " + nf(defaultInertia, 1, 3) + " кг·м².";
+  return passport + tuning + preset;
 }
 
 // Есть ли орган у этой машины. machines — список типов; без него орган
@@ -773,7 +777,8 @@ class ControlPanel {
     for (const description of motorParameterSliderDescriptions(this.machineType)) {
       this.motorCard.append(this.buildSlider(description));
     }
-    this.motorCard.append(element("p", "hint", motorPassportHint(this.machineType)));
+    this.motorCard.append(element("p", "hint",
+      motorPassportHint(this.machineType, this.parameters.defaultInertia)));
     this.controlGroup.append(this.motorCard);
   }
 

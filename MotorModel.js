@@ -39,6 +39,7 @@ const DEFAULT_STATOR_RESISTANCE = 1.2;
 const DEFAULT_STATOR_INDUCTANCE = 0.006;
 const DEFAULT_MAGNET_FLUX = 1.25;
 const DEFAULT_INERTIA = 0.1;
+const MAXIMUM_PMSM_INERTIA = 1.0;
 
 // Паспорт машины. Четыре величины — сопротивление обмотки, её индуктивность,
 // потокосцепление магнитов и момент инерции — настраиваются из панели: от них
@@ -83,7 +84,8 @@ class MotorParameters {
   // заставил бы решатель дёргаться около нуля. Механическая постоянная
   // времени J/Bv при значениях по умолчанию много больше электрической,
   // поэтому скорость меняется заметно медленнее тока — это видно и на экране.
-  inertia = DEFAULT_INERTIA;
+  defaultInertia;
+  inertia;
   viscousFriction = 0.0015;
   coulombFriction = 0.155;
   frictionSmoothingSpeed = 0.8;
@@ -96,6 +98,11 @@ class MotorParameters {
   maximumCurrent = 25.0;
   maximumLoadTorque = 50.0;
 
+  constructor(defaultInertia = DEFAULT_INERTIA) {
+    this.defaultInertia = defaultInertia;
+    this.inertia = defaultInertia;
+  }
+
   // Возврат настраиваемой части паспорта к значениям по умолчанию. Вызывается
   // сбросом наравне с resetGuiParametersPreservingMode: раз эти четыре величины
   // задаются из панели, они такой же параметр интерфейса, как коэффициенты
@@ -104,7 +111,7 @@ class MotorParameters {
     this.statorResistance = DEFAULT_STATOR_RESISTANCE;
     this.statorInductance = DEFAULT_STATOR_INDUCTANCE;
     this.magnetFlux = DEFAULT_MAGNET_FLUX;
-    this.inertia = DEFAULT_INERTIA;
+    this.inertia = this.defaultInertia;
   }
 }
 

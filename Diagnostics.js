@@ -32,6 +32,7 @@ function runSimulationDiagnostics() {
   testManualVoltageCommand();
   testAutoCommutation();
   testOptionalMotorFriction();
+  testMaximumMotorInertiaPreset();
   testManualBackEmfCompensation();
   testVectorCurrentStep();
   testSpeedLoopStep();
@@ -642,7 +643,7 @@ function testAutoCommutation() {
 
 function testOptionalMotorFriction() {
   const standard = createMotorModel(createMotorParameters(MACHINE_PMSM));
-  const frictionless = createMotorModel(createMotorParameters(MACHINE_PMSM, false));
+  const frictionless = createMotorModel(createMotorParameters(MACHINE_PMSM, { frictionEnabled: false }));
 
   diagnosticTrue("The standard PMSM resists motion and holds against small loads",
     standard.frictionTorque(20.0, 0.0) > 0.0
@@ -652,6 +653,17 @@ function testOptionalMotorFriction() {
   frictionless.updateDerivedValues(0.0, 0.0, 0.0);
   diagnosticTrue("The frictionless PMSM has no friction torque after reset",
     frictionless.state.frictionTorque === 0.0 && frictionless.frictionTorque(0.0, 0.1) === 0.0);
+}
+
+function testMaximumMotorInertiaPreset() {
+  const parameters = createMotorParameters(MACHINE_PMSM, { maximumInertia: true });
+  const slider = motorParameterSliderDescriptions().find((item) => item.setting === "inertia");
+  diagnosticNear("The maximum inertia preset starts at the end of the slider",
+    parameters.inertia, slider.maximum, 1e-12);
+  parameters.inertia = 0.25;
+  parameters.resetTunableParameters();
+  diagnosticNear("Reset restores the maximum inertia preset",
+    parameters.inertia, slider.maximum, 1e-12);
 }
 
 // Каждый профиль — это отдельная страница демонстрации, и ошибка в нём

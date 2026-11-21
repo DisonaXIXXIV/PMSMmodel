@@ -170,10 +170,10 @@ function machineSwitchSearch(search, type) {
   return text === "" ? "" : "?" + text;
 }
 
-function createMotorParameters(type, frictionEnabled = true) {
+function createMotorParameters(type, { frictionEnabled = true, maximumInertia = false } = {}) {
   const parameters = type === MACHINE_INDUCTION
     ? new InductionMotorParameters()
-    : new MotorParameters();
+    : new MotorParameters(maximumInertia ? MAXIMUM_PMSM_INERTIA : DEFAULT_INERTIA);
   if (!frictionEnabled) {
     parameters.viscousFriction = 0.0;
     parameters.coulombFriction = 0.0;

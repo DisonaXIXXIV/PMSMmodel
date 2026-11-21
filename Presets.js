@@ -170,8 +170,15 @@ function machineSwitchSearch(search, type) {
   return text === "" ? "" : "?" + text;
 }
 
-function createMotorParameters(type) {
-  return type === MACHINE_INDUCTION ? new InductionMotorParameters() : new MotorParameters();
+function createMotorParameters(type, frictionEnabled = true) {
+  const parameters = type === MACHINE_INDUCTION
+    ? new InductionMotorParameters()
+    : new MotorParameters();
+  if (!frictionEnabled) {
+    parameters.viscousFriction = 0.0;
+    parameters.coulombFriction = 0.0;
+  }
+  return parameters;
 }
 
 function createMotorModel(parameters) {

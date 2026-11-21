@@ -454,8 +454,10 @@ class MachineStage {
       ["vector-emf", "ЭДС E"],
       ["torque-motor", "Mдв"],
       ["torque-load", "Mнагр"],
-      ["torque-friction", "Mтр"],
     ];
+    if (this.parameters.viscousFriction > 0.0 || this.parameters.coulombFriction > 0.0) {
+      entries.push(["torque-friction", "Mтр"]);
+    }
     if (this.parameters.machineType === MACHINE_INDUCTION) {
       entries.splice(3, 0, ["vector-flux", "поток ψr"]);
     }

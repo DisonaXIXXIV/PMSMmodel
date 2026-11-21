@@ -31,6 +31,7 @@ function runSimulationDiagnostics() {
   testManualCurrentStep();
   testManualVoltageCommand();
   testAutoCommutation();
+  testOptionalMotorFriction();
   testManualBackEmfCompensation();
   testVectorCurrentStep();
   testSpeedLoopStep();
@@ -637,6 +638,20 @@ function testAutoCommutation() {
   simulator.advanceFrame(false);
   diagnosticNear("Zero commutation voltage reaches the motor",
     Math.hypot(motor.state.voltageAlpha, motor.state.voltageBeta), 0.0, 1e-12);
+}
+
+function testOptionalMotorFriction() {
+  const standard = createMotorModel(createMotorParameters(MACHINE_PMSM));
+  const frictionless = createMotorModel(createMotorParameters(MACHINE_PMSM, false));
+
+  diagnosticTrue("The standard PMSM resists motion and holds against small loads",
+    standard.frictionTorque(20.0, 0.0) > 0.0
+    && standard.frictionTorque(0.0, 0.1) === 0.1);
+  frictionless.parameters.resetTunableParameters();
+  frictionless.state.mechanicalSpeed = 20.0;
+  frictionless.updateDerivedValues(0.0, 0.0, 0.0);
+  diagnosticTrue("The frictionless PMSM has no friction torque after reset",
+    frictionless.state.frictionTorque === 0.0 && frictionless.frictionTorque(0.0, 0.1) === 0.0);
 }
 
 // Каждый профиль — это отдельная страница демонстрации, и ошибка в нём

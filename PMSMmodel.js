@@ -82,7 +82,7 @@ function setup() {
   // Машина — синхронная или асинхронная — выбирается один раз, при открытии
   // страницы (см. Presets.js): дальше всё работает с тем паспортом и той
   // моделью, что созданы здесь.
-  motorParameters = createMotorParameters(activeMachineType);
+  motorParameters = createMotorParameters(activeMachineType, window.PMSM_FRICTION_ENABLED !== false);
   controlSettings = new ControlSettings(motorParameters);
   applyDemoProfile(activeProfile, controlSettings);
   motor = createMotorModel(motorParameters);

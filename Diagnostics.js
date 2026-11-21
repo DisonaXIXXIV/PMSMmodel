@@ -62,6 +62,7 @@ function runSimulationDiagnostics() {
   testFluxVectorDisplay();
   testInductionReferenceFrameLock();
   testTorqueArcsFitCanvas();
+  testTorqueArcCrossesZero();
   testTorqueArcsMeet();
   testVersionStamp();
   testVersionParsing();
@@ -1428,9 +1429,27 @@ function testTorqueArcsFitCanvas() {
   if (stubbedColor) delete globalThis.color;
 }
 
-// Дуга момента машины начинается там, где кончается дуга нагрузки, — если
-// нагрузка есть. Без нагрузки — на своём обычном месте: −126° для
-// положительного момента.
+function testTorqueArcCrossesZero() {
+  const parameters = new MotorParameters();
+  const view = new MotorView(parameters, new ControlSettings(parameters));
+  const reference = view.torqueArcGeometry(10.0);
+  for (const anchor of [undefined, 0.6]) {
+    const smallPositive = view.torqueArcGeometry(0.01, anchor);
+    const smallNegative = view.torqueArcGeometry(-0.01, anchor);
+    const start = anchor === undefined ? -HALF_PI : anchor;
+    diagnosticTrue("Zero torque has no arc at " + start,
+      view.torqueArcGeometry(0.0, anchor) === null);
+    diagnosticTrue("Both signs of torque start at " + start,
+      smallPositive?.start === start && smallNegative?.start === start);
+    diagnosticNear("Small positive torque gives a proportionally short arc at " + start,
+      smallPositive?.sweep, reference.sweep / 1000, 1e-12);
+    diagnosticNear("Small negative torque reverses the arc at " + start,
+      smallNegative?.sweep, -reference.sweep / 1000, 1e-12);
+  }
+}
+
+// Дуга момента машины начинается там, где кончается дуга нагрузки.
+// При нулевых нагрузке и трении она начинается внизу статора.
 function testTorqueArcsMeet() {
   let testParameters = new MotorParameters();
   let testSettings = new ControlSettings(testParameters);
@@ -1462,7 +1481,7 @@ function testTorqueArcsMeet() {
   drawn = [];
   testView.drawTorqueArcs({ electromagneticTorque: 12.0, loadTorque: 0.0, frictionTorque: 0.3 });
   diagnosticNear("Without a load the friction arc starts at its usual place",
-    drawn[2].arc.start, -0.30 * PI, 1e-12);
+    drawn[2].arc.start, -HALF_PI, 1e-12);
   diagnosticNear("Without a load the motor arc starts where the friction arc ends",
     drawn[0].arc.start, drawn[2].arc.start + drawn[2].arc.sweep, 1e-12);
 
@@ -1471,7 +1490,7 @@ function testTorqueArcsMeet() {
   diagnosticTrue("With no resistance only the motor arc is drawn",
     drawn[1].arc === null && drawn[2].arc === null);
   diagnosticNear("With no resistance the motor arc starts at its usual place",
-    drawn[0].arc.start, -0.70 * PI, 1e-12);
+    drawn[0].arc.start, -HALF_PI, 1e-12);
 
   if (stubbedColor) delete globalThis.color;
 }

@@ -60,8 +60,8 @@ const MAXIMUM_PIXEL_DENSITY = 2.0;
 // какой профиль показывает страница, нужно ли вместо программы прогнать
 // самотестирование, и как устроены разметка и полотно.
 function setup() {
-  activeProfile = resolveDemoProfile();
   activeMachineType = requestedMachineType();
+  activeProfile = resolveDemoProfile(activeMachineType);
   document.title = machineDocumentTitle(activeProfile, activeMachineType);
 
   // Те же тесты, что и npm test, но прямо в браузере: полотно не создаётся,

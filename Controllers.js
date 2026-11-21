@@ -1,4 +1,4 @@
-// Управление: три режима задания напряжения на машину и регуляторы, которыми
+// Управление: режимы задания напряжения на машину и регуляторы, которыми
 // это задание получается.
 //
 // Единственный выход файла — DriveController.voltageCommand, вектор напряжения
@@ -15,9 +15,10 @@
 //                    (у PMSM — нулём, у асинхронной машины — током
 //                    намагничивания), iq задаётся ползунком либо внешним
 //                    контуром скорости.
+//   MODE_AUTO_COMMUTATION — у PMSM направление напряжения задаёт сектор ротора.
 //
-// Машина задаётся паспортом (parameters.machineType). Режимы у обеих одни и
-// те же; различаются только развязка осей и то, откуда берётся угол d–q: у
+// Машина задаётся паспортом (parameters.machineType). В общих режимах
+// различаются развязка осей и то, откуда берётся угол d–q: у
 // PMSM это угол ротора, у асинхронной машины — угол потока ротора, который
 // оценивает наблюдатель здесь же (updateFluxObserver).
 //
@@ -26,12 +27,11 @@
 // датчиков, их шума и задержек здесь нет — показывается идеализированная
 // картина, где измерено всё и точно.
 
-// Режимы управления. Числа не случайны: это же индексы кнопок в строке выбора
-// режима (ButtonRowControl), поэтому нажатие кнопки превращается в режим без
-// всякой таблицы соответствия.
+// Номера режимов совпадают с индексами их описаний в Panel.js.
 const MODE_MANUAL = 0;
 const MODE_OPEN_LOOP = 1;
 const MODE_VECTOR = 2;
+const MODE_AUTO_COMMUTATION = 3;
 
 // Что именно тянут мышью в ручном режиме, тоже по индексам кнопок.
 const MANUAL_VECTOR_CURRENT = 0;
@@ -41,6 +41,22 @@ const MANUAL_VECTOR_VOLTAGE = 1;
 // амплитуде ток мгновенно ушёл бы далеко за предел: показывать было бы
 // нечего. 15 В дают токи того же порядка, что и остальные режимы.
 const MANUAL_MAXIMUM_VOLTAGE = 15.0;
+
+// При 30 В ротор вращается достаточно медленно, чтобы различить коммутации.
+const COMMUTATION_MAXIMUM_VOLTAGE = 30.0;
+const DEFAULT_COMMUTATION_VOLTAGE = 24.0;
+const COMMUTATION_SECTOR_WIDTH = Math.PI / 3.0;
+const COMMUTATION_BOUNDARIES = Array.from({ length: 6 },
+  (_, sector) => (2 * sector + 1) * Math.PI / 6.0);
+
+// Сектор 0 пересекает ноль, а остальные начинаются на 30°, 90°, …, 270°.
+function commutationSector(electricalAngle) {
+  const angle = wrapAngle(electricalAngle);
+  for (let sector = 0; sector < COMMUTATION_BOUNDARIES.length; sector++) {
+    if (angle < COMMUTATION_BOUNDARIES[sector]) return sector;
+  }
+  return 0;
+}
 
 // Всё, что можно задать из интерфейса. Одна структура-посредник: панель в неё
 // только пишет, регуляторы и отрисовка — только читают. Значения полей здесь
@@ -62,6 +78,7 @@ class ControlSettings {
   manualVectorType = MANUAL_VECTOR_CURRENT;
   openLoopVoltage = 0.0;
   openLoopFrequency = 0.0;
+  commutationVoltage = DEFAULT_COMMUTATION_VOLTAGE;
 
   // Задания и коэффициенты векторного режима. Один и тот же ПИ-регулятор тока
   // (Kp, Ki) используется и здесь, и в ручном задании тока: это буквально
@@ -118,6 +135,7 @@ class ControlSettings {
     this.manualVoltageBeta = 0.0;
     this.openLoopVoltage = 0.0;
     this.openLoopFrequency = 0.0;
+    this.commutationVoltage = DEFAULT_COMMUTATION_VOLTAGE;
 
     this.currentQReference = 0.0;
     this.currentKp = 4.0;
@@ -260,6 +278,8 @@ class DriveController {
       this.updateManualMode(state, timeStep);
     } else if (this.activeMode == MODE_OPEN_LOOP) {
       this.updateOpenLoopMode(timeStep);
+    } else if (this.activeMode == MODE_AUTO_COMMUTATION) {
+      this.updateAutoCommutationMode(state);
     } else {
       this.updateVectorMode(state, timeStep);
     }
@@ -321,6 +341,16 @@ class DriveController {
     this.openLoopAngle = wrapAngle(this.openLoopAngle + TWO_PI * this.settings.openLoopFrequency * timeStep);
     this.voltageCommand.x = this.settings.openLoopVoltage * cos(this.openLoopAngle);
     this.voltageCommand.y = this.settings.openLoopVoltage * sin(this.openLoopAngle);
+    this.currentDReference = 0.0;
+    this.currentQReference = 0.0;
+  }
+
+  // В середине сектора напряжение направлено вдоль q. До следующей
+  // коммутации угол напряжения неподвижен, поэтому опережение d лежит в 60–120°.
+  updateAutoCommutationMode(state) {
+    const angle = HALF_PI + commutationSector(state.electricalAngle) * COMMUTATION_SECTOR_WIDTH;
+    const voltage = this.settings.commutationVoltage;
+    this.voltageCommand.set(voltage * cos(angle), voltage * sin(angle));
     this.currentDReference = 0.0;
     this.currentQReference = 0.0;
   }

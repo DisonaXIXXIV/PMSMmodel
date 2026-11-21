@@ -248,11 +248,27 @@ class MotorView {
 
     this.drawStator(state);
     this.drawRotor(state);
+    if (this.settings.mode === MODE_AUTO_COMMUTATION) this.drawCommutationBoundaries();
     this.drawAxes(state);
     this.drawFluxVector(state);
     this.drawCurrentProjections(state);
     this.drawElectricalVectors(state);
     this.drawTorqueArcs(state);
+  }
+
+  // Границы секторов закреплены в осях α–β. Метки занимают только воздушный
+  // зазор, чтобы не закрывать обмотку и векторы.
+  drawCommutationBoundaries() {
+    const gap = this.statorInnerRadius - this.rotorRadius;
+    const start = this.rotorRadius + gap * 0.25;
+    const end = this.statorInnerRadius - gap * 0.12;
+    strokeTheme(theme().motorSubtitle);
+    strokeWeight(1.5);
+    for (const boundary of COMMUTATION_BOUNDARIES) {
+      const angle = this.screenAngle(boundary);
+      line(this.pointX(angle, start), this.pointY(angle, start),
+        this.pointX(angle, end), this.pointY(angle, end));
+    }
   }
 
   // Перевод физического угла в экранный. Единственное место, где учитывается
@@ -584,9 +600,9 @@ class MotorView {
 
   // Напряжение, которому соответствует полная длина векторов u и E.
   voltageDisplayMaximum() {
-    return this.isManualVoltageScale()
-      ? MANUAL_MAXIMUM_VOLTAGE
-      : this.parameters.maximumVoltage;
+    if (this.isManualVoltageScale()) return MANUAL_MAXIMUM_VOLTAGE;
+    if (this.settings.mode === MODE_AUTO_COMMUTATION) return COMMUTATION_MAXIMUM_VOLTAGE;
+    return this.parameters.maximumVoltage;
   }
 
   // Вектор, заданный проекциями на α и β. Совсем короткие не рисуются: у

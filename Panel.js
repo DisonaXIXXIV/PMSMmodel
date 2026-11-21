@@ -95,6 +95,9 @@ function panelSliderDescriptions(parameters) {
       step: 1.0, decimals: 0, modes: [MODE_OPEN_LOOP] },
     { setting: "openLoopFrequency", label: "Электрическая частота", unit: " Гц",
       minimum: -100.0, maximum: 100.0, step: 0.5, decimals: 1, modes: [MODE_OPEN_LOOP] },
+    { setting: "commutationVoltage", label: "Амплитуда напряжения", unit: " В",
+      minimum: 0.0, maximum: COMMUTATION_MAXIMUM_VOLTAGE,
+      step: 1.0, decimals: 0, modes: [MODE_AUTO_COMMUTATION], machines: [MACHINE_PMSM] },
     { setting: "currentQReference", label: "Задание тока iq", unit: " А",
       minimum: -parameters.maximumCurrent, maximum: parameters.maximumCurrent,
       step: 0.1, decimals: 1, modes: [MODE_VECTOR], speedLoop: false },
@@ -213,9 +216,7 @@ function sliderStoredValue(description, shown) {
 }
 
 // Режимы управления: подпись на сегменте переключателя, значок над ней и
-// заголовок карточки с параметрами этого режима. Список идёт в порядке
-// MODE_MANUAL, MODE_OPEN_LOOP, MODE_VECTOR — номер режима и есть номер записи,
-// поэтому карточка параметров всегда называет тот режим, который выбран.
+// заголовок карточки с параметрами. Индекс записи совпадает с номером режима.
 const MODE_DESCRIPTIONS = [
   { mode: MODE_MANUAL, label: "Ручной", icon: "pointer",
     tuning: "ПАРАМЕТРЫ РУЧНОГО РЕЖИМА" },
@@ -223,6 +224,8 @@ const MODE_DESCRIPTIONS = [
     tuning: "ПАРАМЕТРЫ РАЗОМКНУТОГО РЕЖИМА" },
   { mode: MODE_VECTOR, label: "Векторный", icon: "vector",
     tuning: "ПАРАМЕТРЫ ВЕКТОРНОГО РЕЖИМА" },
+  { mode: MODE_AUTO_COMMUTATION, label: "Автокоммутация", icon: "commutation",
+    tuning: "ПАРАМЕТРЫ АВТОКОММУТАЦИИ", machines: [MACHINE_PMSM] },
 ];
 
 // Флажок контура скорости стоит среди органов векторного режима, остальные —
@@ -338,6 +341,7 @@ const TOOLBAR_ICONS = {
     + '<path d="M16 12h5m-2.2-2.2L21 12l-2.2 2.2"/>',
   vector: '<path d="M4.5 20V5M4.5 20h15"/><path d="M6.5 18L17 7.5"/>'
     + '<path d="M17 7.5l-4.6.5M17 7.5l-.5 4.6"/>',
+  commutation: '<path d="M3 19h6v-7h6V5h6"/>',
 };
 
 function iconMarkup(name) {
@@ -359,6 +363,7 @@ class MachineStage {
   stage;
   title;
   frameName;
+  commutationStatus;
   note;
   legend;
   readoutValues = {};
@@ -396,7 +401,9 @@ class MachineStage {
       typeof PMSM_VERSION === "string" ? PMSM_VERSION : "");
     this.frameName = element("p", "stage__subtitle");
     this.note = element("p", "stage__note", "");
-    caption.append(this.title, this.version, this.frameName, this.note);
+    this.commutationStatus = element("p", "stage__subtitle");
+    this.commutationStatus.hidden = true;
+    caption.append(this.title, this.version, this.frameName, this.note, this.commutationStatus);
     stage.insertBefore(caption, canvasHost);
 
     let footer = element("div", "stage__footer");
@@ -507,9 +514,17 @@ class MachineStage {
     setText(this.readoutValues.loadTorque.value, nf(state.loadTorque, 1, 2) + " Н·м");
     setText(this.readoutValues.currentD.value, nf(state.currentD, 1, 2) + " А");
     setText(this.readoutValues.currentQ.value, nf(state.currentQ, 1, 2) + " А");
-    setText(this.readoutValues.voltage.value,
-      nf(sqrt(state.voltageAlpha * state.voltageAlpha
-        + state.voltageBeta * state.voltageBeta), 1, 1) + " В");
+    const voltage = Math.hypot(state.voltageAlpha, state.voltageBeta);
+    setText(this.readoutValues.voltage.value, nf(voltage, 1, 1) + " В");
+    const commutating = this.settings.mode === MODE_AUTO_COMMUTATION;
+    setHidden(this.commutationStatus, !commutating);
+    if (commutating) {
+      const direction = voltage === 0 ? "—"
+        : Math.round(wrapAngle(Math.atan2(state.voltageBeta, state.voltageAlpha)) * 180 / PI) + "°";
+      setText(this.commutationStatus,
+        "Сектор ротора " + commutationSector(state.electricalAngle)
+        + " · направление u: " + direction);
+    }
     // ψf меняется ползунком паспорта, а скольжение — само, поэтому
     // примечание обновляется вместе с показаниями, а не пишется один раз при
     // построении.
@@ -559,6 +574,7 @@ class ControlPanel {
   checkboxes = [];
   themeCheckbox;
   modeButtons = [];
+  availableModes;
   machineButtons = [];
   manualVectorButtons = [];
   tabButtons = [];
@@ -577,6 +593,7 @@ class ControlPanel {
     this.profile = profile === undefined ? demoProfile(PROFILE_FULL) : profile;
     this.commands = commands;
     this.machineType = parameters.machineType;
+    this.availableModes = MODE_DESCRIPTIONS.filter((item) => controlForMachine(item, this.machineType));
   }
 
   // -- построение разметки ---------------------------------------------------
@@ -700,12 +717,12 @@ class ControlPanel {
     if (!this.profile.singleMode) {
       this.modeCard = panelCard("РЕЖИМ УПРАВЛЕНИЯ", "panel__group--mode");
       this.modeCard.append(this.buildButtonRow("Режим управления",
-        MODE_DESCRIPTIONS.map((item) => item.label), this.modeButtons,
+        this.availableModes.map((item) => item.label), this.modeButtons,
         (index) => {
-          this.controller.setMode(index, this.commands.motorState());
+          this.controller.setMode(this.availableModes[index].mode, this.commands.motorState());
           this.syncFromSettings();
         },
-        { modifier: "buttons--modes", icons: MODE_DESCRIPTIONS.map((item) => item.icon) }));
+        { modifier: "buttons--modes", icons: this.availableModes.map((item) => item.icon) }));
       this.controlGroup.append(this.modeCard);
     }
 
@@ -735,7 +752,8 @@ class ControlPanel {
     this.manualSection.append(this.hint);
     this.tuningCard.append(this.manualSection);
 
-    for (const description of descriptions.filter((item) => !item.common)) {
+    for (const description of descriptions) {
+      if (description.common || !controlForMachine(description, this.machineType)) continue;
       this.tuningCard.append(this.buildSlider(description));
     }
     for (const description of PANEL_CHECKBOX_DESCRIPTIONS) {
@@ -994,7 +1012,7 @@ class ControlPanel {
     this.themeCheckbox.input.checked = isLightTheme();
 
     for (let index = 0; index < this.modeButtons.length; index++) {
-      this.selectButton(this.modeButtons[index], this.settings.mode === index);
+      this.selectButton(this.modeButtons[index], this.settings.mode === this.availableModes[index].mode);
     }
     for (let index = 0; index < this.machineButtons.length; index++) {
       this.selectButton(this.machineButtons[index],

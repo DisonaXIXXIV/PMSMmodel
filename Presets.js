@@ -16,6 +16,7 @@ const PROFILE_MANUAL_VOLTAGE = "manual-voltage";
 const PROFILE_MANUAL_CURRENT = "manual-current";
 const PROFILE_OPEN_LOOP = "open-loop";
 const PROFILE_VECTOR = "vector";
+const PROFILE_AUTO_COMMUTATION = "auto-commutation";
 
 // documentTitle — заголовок вкладки, panelTitle — заголовок панели управления
 // вместо общего «Управление PMSM». singleMode убирает строку выбора режима,
@@ -66,13 +67,26 @@ const DEMO_PROFILES = {
     singleMode: true,
     singleManualVector: true,
   },
+  [PROFILE_AUTO_COMMUTATION]: {
+    name: PROFILE_AUTO_COMMUTATION,
+    documentTitle: "PMSM — автокоммутация",
+    panelTitle: "Автокоммутация",
+    mode: MODE_AUTO_COMMUTATION,
+    manualVectorType: MANUAL_VECTOR_CURRENT,
+    singleMode: true,
+    singleManualVector: true,
+    machine: MACHINE_PMSM,
+  },
 };
 
 // Неизвестное имя — опечатка в ссылке или в window.PMSM_PROFILE. Показывать
 // пустую страницу из-за неё незачем: возвращаем полную программу.
-function demoProfile(name) {
+function demoProfile(name, machineType = MACHINE_PMSM) {
   let profile = DEMO_PROFILES[name];
-  return profile === undefined ? DEMO_PROFILES[PROFILE_FULL] : profile;
+  if (profile === undefined || (profile.machine !== undefined && profile.machine !== machineType)) {
+    return DEMO_PROFILES[PROFILE_FULL];
+  }
+  return profile;
 }
 
 // Какой профиль запрошен. Порядок важен: объявление страницы сильнее адреса.
@@ -90,8 +104,8 @@ function requestedDemoProfileName() {
 }
 
 // Единственное, что нужно точке входа: узнать профиль этой страницы.
-function resolveDemoProfile() {
-  return demoProfile(requestedDemoProfileName());
+function resolveDemoProfile(machineType) {
+  return demoProfile(requestedDemoProfileName(), machineType);
 }
 
 // Профиль задаёт стартовый режим до создания регуляторов: DriveController
@@ -104,10 +118,8 @@ function applyDemoProfile(profile, settings) {
 
 // -- выбор машины -------------------------------------------------------------
 //
-// Машина выбирается независимо от профиля: любой режим показывается на любой
-// из двух машин. Источник выбора — тот же, что у профиля, и в том же порядке:
-// страница induction/ объявляет window.PMSM_MACHINE, остальные принимают
-// ?machine=induction. Без того и другого — PMSM, как было всегда.
+// Машину может объявить сама страница (induction/ или auto-commutation/).
+// Остальные страницы принимают ?machine=induction. Без явного выбора — PMSM.
 //
 // Переключатель в панели не меняет машину на ходу, а открывает тот же адрес
 // с другим ?machine. Смена машины — это всё равно полный сброс: другой

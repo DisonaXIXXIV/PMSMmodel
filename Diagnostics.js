@@ -30,6 +30,7 @@ function runSimulationDiagnostics() {
   testCoordinateTransform();
   testManualCurrentStep();
   testManualVoltageCommand();
+  testAutoCommutation();
   testManualBackEmfCompensation();
   testVectorCurrentStep();
   testSpeedLoopStep();
@@ -470,6 +471,7 @@ function testGuiParameterReset() {
   testSettings.loadTorque = 17.0;
   testSettings.openLoopVoltage = 200.0;
   testSettings.openLoopFrequency = 42.0;
+  testSettings.commutationVoltage = 0.0;
   testSettings.currentKp = 12.0;
   testSettings.speedReferenceRpm = -730.0;
   testSettings.speedLoopEnabled = true;
@@ -481,6 +483,8 @@ function testGuiParameterReset() {
   diagnosticNear("Reset restores load", testSettings.loadTorque, 0.0, 0.0001);
   diagnosticNear("Reset restores open-loop voltage", testSettings.openLoopVoltage, 0.0, 0.0001);
   diagnosticNear("Reset restores open-loop frequency", testSettings.openLoopFrequency, 0.0, 0.0001);
+  diagnosticNear("Reset restores commutation voltage", testSettings.commutationVoltage,
+    DEFAULT_COMMUTATION_VOLTAGE, 1e-12);
   diagnosticNear("Reset restores current Kp", testSettings.currentKp, 4.0, 0.0001);
   diagnosticNear("Reset restores speed reference", testSettings.speedReferenceRpm, 0.0, 0.0001);
   diagnosticNear("Reset clears manual voltage alpha", testSettings.manualVoltageAlpha, 0.0, 0.0001);
@@ -588,6 +592,53 @@ function testMotorParameterControls() {
   diagnosticNear("Reset restores the inertia", resetParameters.inertia, 0.1, 1e-12);
 }
 
+// Проверяем напряжение по обе стороны каждой границы и при разгоне модели.
+function testAutoCommutation() {
+  const parameters = new MotorParameters();
+  const motor = new PMSMModel(parameters);
+  const settings = new ControlSettings(parameters);
+  applyDemoProfile(demoProfile(PROFILE_AUTO_COMMUTATION), settings);
+  const controller = new DriveController(parameters, settings);
+  const simulator = new FixedStepSimulator(motor, controller, settings);
+  const directions = [90, 150, 210, 270, 330, 30];
+  const boundaries = [30, 90, 150, 210, 270, 330];
+
+  for (const [sector, boundary] of boundaries.entries()) {
+    const nextSector = (sector + 1) % directions.length;
+    for (const [offset, expected] of [[-0.01, sector], [0.01, nextSector]]) {
+      const angle = (boundary + offset) * PI / 180;
+      const target = directions[expected] * PI / 180;
+      const label = (boundary + offset) + "° rotor angle";
+      diagnosticTrue("Commutation selects the sector at " + label,
+        commutationSector(angle) === expected);
+      controller.update({ electricalAngle: angle }, simulator.fixedTimeStep);
+      diagnosticNear("Commutation voltage alpha at " + label,
+        controller.voltageCommand.x, DEFAULT_COMMUTATION_VOLTAGE * cos(target), 1e-10);
+      diagnosticNear("Commutation voltage beta at " + label,
+        controller.voltageCommand.y, DEFAULT_COMMUTATION_VOLTAGE * sin(target), 1e-10);
+    }
+  }
+  diagnosticTrue("Sector 0 spans the electrical zero",
+    [-1, 0, 1, 359, 360, 361].every((angle) => commutationSector(angle * PI / 180) === 0));
+  diagnosticTrue("Induction does not open the auto-commutation profile",
+    demoProfile(PROFILE_AUTO_COMMUTATION, MACHINE_INDUCTION).name === PROFILE_FULL);
+
+  const appliedDirections = new Set();
+  for (let frame = 0; frame < 1000; frame++) {
+    simulator.advanceFrame(false);
+    const direction = wrapAngle(Math.atan2(motor.state.voltageBeta, motor.state.voltageAlpha));
+    appliedDirections.add(Math.round(direction * 180 / PI));
+  }
+  diagnosticTrue("The motor starts and receives all six voltage directions",
+    motor.state.mechanicalSpeed > 0 && directions.every((angle) => appliedDirections.has(angle))
+    && appliedDirections.size === directions.length);
+
+  settings.commutationVoltage = 0.0;
+  simulator.advanceFrame(false);
+  diagnosticNear("Zero commutation voltage reaches the motor",
+    Math.hypot(motor.state.voltageAlpha, motor.state.voltageBeta), 0.0, 1e-12);
+}
+
 // Каждый профиль — это отдельная страница демонстрации, и ошибка в нём
 // проявилась бы только открытой ссылкой. Проверяем состав профилей и то, что
 // профиль доводит свой режим до настроек, до регуляторов и переживает сброс.
@@ -644,7 +695,7 @@ function testDemoProfiles() {
     console.log("FAIL: the full profile must keep the mode selector");
   }
   // Все режимы модели показаны хотя бы одной отдельной страницей.
-  for (const mode of [MODE_MANUAL, MODE_OPEN_LOOP, MODE_VECTOR]) {
+  for (const mode of [MODE_MANUAL, MODE_OPEN_LOOP, MODE_VECTOR, MODE_AUTO_COMMUTATION]) {
     if (!singleModes.includes(mode)) {
       failures++;
       console.log("FAIL: no single-mode profile demonstrates mode " + mode);
@@ -892,7 +943,7 @@ function testLayoutMode() {
 // и то и другое видно только глазами, уже на открытой странице.
 function testModeDescriptions() {
   let failures = 0;
-  let expected = [MODE_MANUAL, MODE_OPEN_LOOP, MODE_VECTOR];
+  let expected = [MODE_MANUAL, MODE_OPEN_LOOP, MODE_VECTOR, MODE_AUTO_COMMUTATION];
 
   if (MODE_DESCRIPTIONS.length !== expected.length) {
     failures++;
@@ -1117,8 +1168,13 @@ function testVoltageDisplayScale() {
 
   testSettings.mode = MODE_VECTOR;
   testView.drawElectricalVectors(state);
-  diagnosticNear("Other modes draw E on the inverter scale",
+  diagnosticNear("Vector mode draws E on the inverter scale",
     drawn.E.maximum, testParameters.maximumVoltage, 1e-12);
+
+  testSettings.mode = MODE_AUTO_COMMUTATION;
+  testView.drawElectricalVectors(state);
+  diagnosticNear("Auto-commutation draws u on the demo voltage scale",
+    drawn.u.maximum, COMMUTATION_MAXIMUM_VOLTAGE, 1e-12);
 
   if (stubbedColor) delete globalThis.color;
 }
@@ -1133,8 +1189,8 @@ function testHelpContents() {
     let text = helpPlainText(machine.type);
     let modes = sections[0].items.map((item) => item[0]);
     for (const description of MODE_DESCRIPTIONS) {
-      diagnosticTrue("The " + machine.type + " help describes the " + description.label + " mode",
-        modes.includes(description.label));
+      diagnosticTrue("The " + machine.type + " help matches the availability of " + description.label,
+        modes.includes(description.label) === controlForMachine(description, machine.type));
     }
     for (const key of ["Пробел", "R", "T"]) {
       diagnosticTrue("The " + machine.type + " help mentions the " + key + " key",

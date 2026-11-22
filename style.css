@@ -795,6 +795,17 @@ body {
   color: var(--button-label-selected);
 }
 
+.button.is-start,
+.toolbar__button.is-start {
+  background: var(--start-button-fill);
+  color: var(--start-button-label);
+  font-weight: 700;
+}
+
+.toolbar__button.is-start .toolbar__label {
+  color: inherit;
+}
+
 /* Подпись строки кнопок — такая же, как у ползунка рядом: и то и другое
    настраивает выбранный режим. */
 .buttons__caption {

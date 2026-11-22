@@ -1035,16 +1035,21 @@ class ControlPanel {
       tab.button.classList.toggle("is-selected", active);
     }
 
-    let paused = this.commands.isPaused();
-    setText(this.pauseButton, paused ? "Продолжить" : "Пауза");
+    const paused = this.commands.isPaused();
+    const readyToStart = paused && this.commands.startsPaused
+      && this.commands.motorState().simulationTime === 0;
+    const pauseLabel = readyToStart ? "Пуск" : (paused ? "Продолжить" : "Пауза");
+    setText(this.pauseButton, pauseLabel);
     this.pauseButton.classList.toggle("is-active", paused);
+    this.pauseButton.classList.toggle("is-start", readyToStart);
     // Солнце и луна показывают тему, в которую кнопка переведёт, а не текущую.
     this.toolbarButtons.theme.button.innerHTML = iconMarkup(isLightTheme() ? "moon" : "sun");
     this.toolbarButtons.theme.button.append(this.toolbarButtons.theme.label);
     this.toolbarButtons.pause.button.innerHTML = iconMarkup(paused ? "play" : "pause");
     this.toolbarButtons.pause.button.append(this.toolbarButtons.pause.label);
-    setText(this.toolbarButtons.pause.label, paused ? "Продолжить" : "Пауза");
+    setText(this.toolbarButtons.pause.label, pauseLabel);
     this.toolbarButtons.pause.button.classList.toggle("is-active", paused);
+    this.toolbarButtons.pause.button.classList.toggle("is-start", readyToStart);
     this.toolbarButtons.settings.button.setAttribute("aria-expanded", String(this.sheetOpen));
 
     this.syncVisibility();

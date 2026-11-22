@@ -37,7 +37,8 @@ let canvasElement;
 // Пауза — общий переключатель: её видят и полоса действий, и кнопки панели, и
 // показания. diagnosticsMode включается ссылкой ?self-test: тогда полотно не
 // создаётся вовсе, а страница показывает итог диагностических тестов.
-let simulationPaused = false;
+const START_PAUSED = window.PMSM_START_PAUSED === true;
+let simulationPaused = START_PAUSED;
 let diagnosticsMode = false;
 
 // Какая компоновка действует сейчас. Значение выставляется атрибутом
@@ -155,6 +156,7 @@ function buildInterface() {
       togglePause: () => { simulationPaused = !simulationPaused; },
       reset: resetSimulation,
       isPaused: () => simulationPaused,
+      startsPaused: START_PAUSED,
       motorState: () => motor.state,
       // Угол ротора нужно запомнить в момент самого нажатия, до следующего шага
       // модели: иначе картинка зафиксируется на положении, которого при нажатии

@@ -146,6 +146,8 @@ const DARK_PALETTE = {
   buttonFillSelected: [49, 142, 178],
   buttonLabel: [180, 192, 210],
   buttonLabelSelected: [247, 247, 247],
+  startButtonFill: [31, 128, 75],
+  startButtonLabel: [255, 255, 255],
   // Выбор режима. Тёмно-синий против голубого у остальных органов: по цвету
   // видно, что эта кнопка меняет поведение привода, а не число в нём.
   modeSurface: [24, 33, 50],
@@ -266,6 +268,8 @@ const LIGHT_PALETTE = {
   buttonFillSelected: [40, 130, 174],
   buttonLabel: [64, 77, 96],
   buttonLabelSelected: [255, 255, 255],
+  startButtonFill: [26, 111, 65],
+  startButtonLabel: [255, 255, 255],
   modeSurface: [228, 236, 248],
   modeBorder: [201, 214, 235],
   modeTrack: [212, 223, 240],

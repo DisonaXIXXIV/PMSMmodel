@@ -550,7 +550,6 @@ class MotorView {
   // его задают числом, а не мышью.
   drawElectricalVectors(state) {
     const palette = theme();
-    const outline = themeColor(palette.motorVectorOutline);
     if (this.settings.mode == MODE_MANUAL) {
       if (this.settings.manualVectorType == MANUAL_VECTOR_CURRENT) {
         this.drawPhysicalVector(this.settings.manualCurrentAlpha, this.settings.manualCurrentBeta,
@@ -563,12 +562,12 @@ class MotorView {
       }
     }
     this.drawPhysicalVector(state.currentAlpha, state.currentBeta, this.parameters.maximumCurrent,
-      this.currentVectorMaximumLength(), themeColor(palette.motorVectorCurrent), "i", outline, -1);
+      this.currentVectorMaximumLength(), themeColor(palette.motorVectorCurrent), "i", -1);
     let manualVoltage = this.isManualVoltageScale();
     if (this.settings.showVoltage) {
       this.drawPhysicalVector(state.voltageAlpha, state.voltageBeta,
         this.voltageDisplayMaximum(), this.statorInnerRadius * 0.91,
-        themeColor(palette.vectorVoltage), "u", outline, 1);
+        themeColor(palette.vectorVoltage), "u", 1);
     }
     if (this.settings.showEmf) {
       // В ручном режиме напряжения ЭДС рисуется ровно в масштабе u: тот же
@@ -577,7 +576,7 @@ class MotorView {
       // чтобы при u ≈ E наконечники и подписи не сливались.
       this.drawPhysicalVector(state.emfAlpha, state.emfBeta, this.voltageDisplayMaximum(),
         this.statorInnerRadius * (manualVoltage ? 0.91 : 0.86),
-        themeColor(palette.motorVectorEmf), "E", outline, -1);
+        themeColor(palette.motorVectorEmf), "E", -1);
     }
   }
 
@@ -610,14 +609,12 @@ class MotorView {
   // Вектор, заданный проекциями на α и β. Совсем короткие не рисуются: у
   // вектора нулевой длины нет направления, и наконечник со подписью
   // превратились бы в кляксу в центре.
-  drawPhysicalVector(alpha, beta, maximum, maximumLength, vectorColor, label,
-                          outline, labelSide) {
+  drawPhysicalVector(alpha, beta, maximum, maximumLength, vectorColor, label, labelSide) {
     let magnitude = sqrt(alpha * alpha + beta * beta);
     if (magnitude < 0.001) return;
     let physicalAngle = atan2(beta, alpha);
     let length = magnitude * this.limitedVectorScale(magnitude, maximum, maximumLength);
-    this.drawArrow(this.screenAngle(physicalAngle), length, vectorColor, label, 2.3,
-      outline, labelSide);
+    this.drawArrow(this.screenAngle(physicalAngle), length, vectorColor, label, 2.3, labelSide);
   }
 
   // Масштаб «пикселей на единицу». Обычно он постоянный — тогда длина вектора
@@ -648,7 +645,7 @@ class MotorView {
     // Проекции лежат поверх ротора, а тот наполовину красный, наполовину
     // синий: красная iq на полюсе N без обводки почти пропадала бы. Обводка
     // цвета фона отделяет стрелку от любой подложки.
-    this.drawArrow(angle, clampedLength, componentColor, label, 1.25,
+    this.drawArrow(angle, clampedLength, componentColor, label, 1.25, 0,
       themeColor(theme().componentHalo));
   }
 
@@ -695,7 +692,7 @@ class MotorView {
   // haloColor необязателен: если задан, стрелка и подпись сначала рисуются
   // этим цветом чуть толще — получается обводка, которая держит стрелку
   // видимой на подложке её же цвета.
-  drawArrow(angle, length, arrowColor, label, weightFactor, haloColor, labelSide = 0) {
+  drawArrow(angle, length, arrowColor, label, weightFactor, labelSide = 0, haloColor) {
     let weight = max(1.2, this.outerRadius * 0.008 * weightFactor);
     let haloWeight = 3.0;
     if (haloColor) {

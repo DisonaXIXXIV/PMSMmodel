@@ -275,10 +275,10 @@ function testInductionDisplayPace() {
       simulator.advanceFrame(false, 1000 / framesPerSecond);
       angle += signedAngle(controller.openLoopAngle - previous);
     }
-    diagnosticNear("Induction time advances 40 ms per second at " + framesPerSecond + " FPS",
-      motor.state.simulationTime, 0.04, 1e-10);
-    diagnosticNear("The 50 Hz induction field makes two turns per second at " + framesPerSecond + " FPS",
-      angle / TWO_PI, 2.0, 1e-10);
+    diagnosticNear("Induction time advances 20 ms per second at " + framesPerSecond + " FPS",
+      motor.state.simulationTime, 0.02, 1e-10);
+    diagnosticNear("The 50 Hz induction field makes one turn per second at " + framesPerSecond + " FPS",
+      angle / TWO_PI, 1.0, 1e-10);
     const time = motor.state.simulationTime;
     simulator.advanceFrame(true, 50);
     diagnosticNear("Pausing the induction model freezes its clock at " + framesPerSecond + " FPS",

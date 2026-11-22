@@ -60,7 +60,7 @@ function helpSections(machineType) {
           + (induction ? ", поток ротора ψr" : "") + "; цвета — в легенде под машиной.",
         induction
           ? "Оси α–β неподвижны, ось d смотрит по потоку ротора ψr; ротор отстаёт"
-            + " от неё на скольжение s — оно над машиной."
+            + " от неё на скольжение s. Текущее скольжение показано в справке."
           : "Оси α–β неподвижны, оси d–q вращаются с ротором; ось d смотрит на"
             + " полюс N.",
         "Значки в пазах — мгновенный ток фаз: • — из экрана, × — в экран;"
@@ -80,7 +80,8 @@ function helpSections(machineType) {
         ["R", "сброс модели и всех параметров; выбранный режим сохраняется."],
         ["T", "светлая или тёмная тема."],
         "На телефоне настройки открываются кнопкой «Настройки» внизу.",
-        "Когда выходит новая версия, страница обновляется сама.",
+        "При возврате на вкладку новая версия загружается автоматически."
+          + " Обновить открытую страницу можно кнопкой рядом с версией в справке.",
       ],
     },
   ];
@@ -115,6 +116,10 @@ function helpPlainText(machineType) {
 class HelpDialog {
   dialog;
   machineType;
+  version;
+  status;
+  updateButton;
+  reloadToUpdate;
 
   constructor(machineType = MACHINE_PMSM) {
     this.machineType = machineType;
@@ -139,7 +144,12 @@ class HelpDialog {
     header.append(title, close);
 
     let content = element("div", "help__content");
-    content.append(element("p", "help__intro", helpIntroduction(this.machineType)));
+    this.version = element("p", "help__version",
+      typeof PMSM_VERSION === "string" ? "Версия " + PMSM_VERSION : "");
+    this.status = element("p", "help__status");
+    this.status.hidden = true;
+    content.append(this.version, element("p", "help__intro", helpIntroduction(this.machineType)),
+      this.status);
     for (const section of helpSections(this.machineType)) {
       content.append(element("h3", "help__section", section.title));
       let list = element("ul", "help__list");
@@ -161,6 +171,36 @@ class HelpDialog {
       if (event.target === this.dialog) this.close();
     });
     host.append(this.dialog);
+  }
+
+  showUpdate(version, reload) {
+    if (!this.updateButton) {
+      this.updateButton = element("button", "help__update");
+      this.updateButton.type = "button";
+      this.updateButton.addEventListener("click", () => {
+        this.updateButton.disabled = true;
+        setText(this.updateButton, "обновляется…");
+        this.reloadToUpdate();
+      });
+      this.version.append(" ", this.updateButton);
+    }
+    this.reloadToUpdate = reload;
+    setText(this.updateButton, "обновить до " + version);
+  }
+
+  update(state, mode) {
+    if (!this.dialog.open) return;
+    let status = "";
+    if (this.machineType === MACHINE_INDUCTION) {
+      status = "Скольжение s = " + formatSlip(state);
+    } else if (mode === MODE_AUTO_COMMUTATION) {
+      const direction = state.voltageAlpha === 0 && state.voltageBeta === 0 ? "—"
+        : Math.round(wrapAngle(Math.atan2(state.voltageBeta, state.voltageAlpha)) * 180 / PI) + "°";
+      status = "Сектор ротора " + commutationSector(state.electricalAngle)
+        + " · направление u: " + direction;
+    }
+    setText(this.status, status);
+    setHidden(this.status, status === "");
   }
 
   open() {

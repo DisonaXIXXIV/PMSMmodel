@@ -85,6 +85,7 @@ body {
 
 .stage__caption {
   position: relative;
+  min-height: 52px;
   flex: 0 0 auto;
   /* Справа место под кнопку справки, чтобы заголовок под неё не заходил. */
   padding: 14px calc(var(--gutter) + 44px) 0 var(--gutter);
@@ -227,21 +228,21 @@ body {
   line-height: 1.2;
 }
 
-.stage__version {
-  margin: 2px 0 0;
+.help__version {
+  margin: 0 0 8px;
   color: var(--motor-note);
   font-size: var(--font-small);
   font-variant-numeric: tabular-nums;
 }
 
-.stage__version:empty {
+.help__version:empty {
   display: none;
 }
 
 /* Кнопка «обновить до …» рядом с версией: тот же мелкий кегль, но янтарный
    акцент и подчёркивание, чтобы было видно, что это действие. Отступы
    расширяют её до пальца, не раздвигая строку. */
-.stage__update {
+.help__update {
   margin: -8px 0;
   padding: 8px 4px;
   border: 0;
@@ -253,22 +254,14 @@ body {
   cursor: pointer;
 }
 
-.stage__update:disabled {
+.help__update:disabled {
   cursor: default;
   text-decoration: none;
 }
 
-.stage__subtitle {
-  margin: 4px 0 0;
+.help__status {
+  margin: 6px 0 0;
   color: var(--motor-subtitle);
-  font-size: var(--font-small);
-}
-
-.stage__note {
-  margin: 2px 0 0;
-  color: var(--motor-note);
-  font-size: var(--font-small);
-  line-height: 1.35;
 }
 
 /* Полотно занимает всё, что осталось между надписями и показаниями. Его размер

@@ -509,7 +509,7 @@ class MotorView {
     noStroke();
     fill(axisColor);
     textAlign(CENTER, CENTER);
-    textSize(max(9.0, this.outerRadius * 0.058));
+    textSize(max(12.0, this.outerRadius * 0.058));
     text(positiveLabel, this.pointX(angle, radius + this.outerRadius * 0.055),
       this.pointY(angle, radius + this.outerRadius * 0.055));
   }

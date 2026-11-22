@@ -146,7 +146,7 @@ function setup() {
 function buildInterface() {
   const stage = document.getElementById("stage");
   const canvasHost = document.getElementById("app");
-  machineStage = new MachineStage(motorParameters, controlSettings);
+  machineStage = new MachineStage(motorParameters);
   helpDialog = new HelpDialog(activeMachineType);
   helpDialog.build(document.body);
   machineStage.build(stage, canvasHost, () => helpDialog.open());
@@ -174,7 +174,7 @@ function buildInterface() {
 
   // Новая версия на сервере: вернувшись на вкладку, страница обновляется сама,
   // а открытой предлагает кнопку (см. Updater.js).
-  startVersionWatch((version, reload) => machineStage.showUpdate(version, reload));
+  startVersionWatch((version, reload) => helpDialog.showUpdate(version, reload));
 }
 
 // Кадр: шаг модели, отрисовка машины, обновление показаний в разметке.
@@ -193,6 +193,7 @@ function draw() {
 
   machineStage.update(motor.state, simulationPaused);
   controlPanel.update(motor.state);
+  helpDialog.update(motor.state, controlSettings.mode);
 }
 
 // Размер берётся у контейнера полотна, а не у окна: в его высоте уже учтены и

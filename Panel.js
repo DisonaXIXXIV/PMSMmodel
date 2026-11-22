@@ -356,19 +356,10 @@ function iconMarkup(name) {
 
 // -- надписи, легенда и показания --------------------------------------------
 
-// Всё, что окружает машину: заголовок и примечание об обмотке сверху, легенда и
-// показания снизу. Раньше это рисовал MotorView и ради переноса примечания по
-// словам сам измерял текст, а ради общей с панелью нижней карточки — делил её
-// геометрию через motorViewDockBounds. Теперь это разметка: перенос делает
-// браузер, а карточка просто содержит полосу действий как дочерний узел.
+// Над машиной — заголовок и кнопка справки, под ней — легенда и показания.
+// В компактной компоновке в карточку показаний входит полоса действий.
 class MachineStage {
   parameters;
-  settings;
-  stage;
-  title;
-  frameName;
-  commutationStatus;
-  note;
   legend;
   readoutValues = {};
   pausedMark;
@@ -376,17 +367,13 @@ class MachineStage {
   // карточки показаний, а не кнопки поверх машины.
   toolbarSlot;
 
-  constructor(parameters, settings) {
+  constructor(parameters) {
     this.parameters = parameters;
-    this.settings = settings;
   }
 
-  // Разметка строится один раз. Полотно уже лежит в документе (#app), надписи
-  // встают до него, легенда с показаниями — после. openHelp — что делать по
-  // кнопке «?» в шапке (см. Help.js).
+  // Полотно уже лежит в документе (#app). Вокруг него добавляется разметка
+  // заголовка, легенды и показаний.
   build(stage, canvasHost, openHelp) {
-    this.stage = stage;
-
     let caption = element("header", "stage__caption");
     // Кнопка справки стоит в шапке, а не в панели: шапка видна в обеих
     // компоновках, а панель на телефоне спрятана в шторку.
@@ -396,18 +383,8 @@ class MachineStage {
     help.title = "Справка";
     help.innerHTML = iconMarkup("help");
     help.addEventListener("click", openHelp);
-    caption.append(help);
-    this.title = element("h1", "stage__title",
-      machineDescription(this.parameters.machineType).title);
-    // Версия — время последнего коммита из version.js (его пишет git-хук).
-    // Без этого файла страница просто обходится без строки версии.
-    this.version = element("p", "stage__version",
-      typeof PMSM_VERSION === "string" ? PMSM_VERSION : "");
-    this.frameName = element("p", "stage__subtitle");
-    this.note = element("p", "stage__note", "");
-    this.commutationStatus = element("p", "stage__subtitle");
-    this.commutationStatus.hidden = true;
-    caption.append(this.title, this.version, this.frameName, this.note, this.commutationStatus);
+    caption.append(element("h1", "stage__title",
+      machineDescription(this.parameters.machineType).title), help);
     stage.insertBefore(caption, canvasHost);
 
     let footer = element("div", "stage__footer");
@@ -416,37 +393,6 @@ class MachineStage {
     footer.append(this.legend, this.buildReadout());
     stage.append(footer);
     this.buildLegend();
-  }
-
-  // Новая версия на сервере (см. Updater.js): рядом с текущей появляется
-  // кнопка, которая на неё обновляет. Сама страница не перезагружается, пока
-  // на неё смотрят, — перезагрузка сбросила бы модель посреди показа.
-  showUpdate(version, reload) {
-    if (!this.updateButton) {
-      this.updateButton = element("button", "stage__update");
-      this.updateButton.type = "button";
-      this.updateButton.addEventListener("click", () => {
-        this.updateButton.disabled = true;
-        setText(this.updateButton, "обновляется…");
-        this.reloadToUpdate();
-      });
-      this.version.append(" ", this.updateButton);
-    }
-    this.reloadToUpdate = reload;
-    setText(this.updateButton, "обновить до " + version);
-  }
-
-  // Примечание об обмотке: потокосцепление магнитов и как читать обозначения
-  // сторон катушек. У асинхронной машины вместо ψf — скольжение: оно и есть
-  // её главная величина, и меняется на ходу.
-  windingNote(state) {
-    let marks = "ток: • — из плоскости, × — в плоскость";
-    if (this.parameters.machineType === MACHINE_INDUCTION) {
-      return "s = " + formatSlip(state) + "; 18 пазов, q = 3; клетка — "
-        + ROTOR_BAR_COUNT + " стержней;  " + marks;
-    }
-    return "ψf = " + nf(this.parameters.magnetFlux, 1, 2)
-      + " Вб; 18 пазов, q = 3;  " + marks.replace("ток:", "ток фаз:");
   }
 
   // Легенда: что означает каждый цвет. Цвета берутся из палитры переменными
@@ -507,12 +453,7 @@ class MachineStage {
     }
   }
 
-  // Кадр: подпись о системе наблюдения и шесть чисел. Всё остальное в надписях
-  // постоянно и переписывания не требует.
   update(state, paused) {
-    setText(this.frameName, this.settings.lockDqFrame
-      ? "система наблюдения d–q зафиксирована"
-      : "неподвижная система α–β");
     setText(this.readoutValues.speed.value,
       formatSignedNumber(rpmFromRadians(state.mechanicalSpeed), 0) + " об/мин");
     setText(this.readoutValues.motorTorque.value,
@@ -522,19 +463,6 @@ class MachineStage {
     setText(this.readoutValues.currentQ.value, nf(state.currentQ, 1, 2) + " А");
     const voltage = Math.hypot(state.voltageAlpha, state.voltageBeta);
     setText(this.readoutValues.voltage.value, nf(voltage, 1, 1) + " В");
-    const commutating = this.settings.mode === MODE_AUTO_COMMUTATION;
-    setHidden(this.commutationStatus, !commutating);
-    if (commutating) {
-      const direction = voltage === 0 ? "—"
-        : Math.round(wrapAngle(Math.atan2(state.voltageBeta, state.voltageAlpha)) * 180 / PI) + "°";
-      setText(this.commutationStatus,
-        "Сектор ротора " + commutationSector(state.electricalAngle)
-        + " · направление u: " + direction);
-    }
-    // ψf меняется ползунком паспорта, а скольжение — само, поэтому
-    // примечание обновляется вместе с показаниями, а не пишется один раз при
-    // построении.
-    setText(this.note, this.windingNote(state));
     setHidden(this.pausedMark, !paused);
   }
 }

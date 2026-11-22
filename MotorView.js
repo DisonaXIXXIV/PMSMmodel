@@ -567,7 +567,7 @@ class MotorView {
     if (this.settings.showVoltage) {
       this.drawPhysicalVector(state.voltageAlpha, state.voltageBeta,
         this.voltageDisplayMaximum(), this.statorInnerRadius * 0.91,
-        themeColor(palette.vectorVoltage), "u", 1);
+        themeColor(palette.motorVectorVoltage), "u", 1, themeColor(palette.vectorVoltage));
     }
     if (this.settings.showEmf) {
       // В ручном режиме напряжения ЭДС рисуется ровно в масштабе u: тот же
@@ -609,12 +609,14 @@ class MotorView {
   // Вектор, заданный проекциями на α и β. Совсем короткие не рисуются: у
   // вектора нулевой длины нет направления, и наконечник со подписью
   // превратились бы в кляксу в центре.
-  drawPhysicalVector(alpha, beta, maximum, maximumLength, vectorColor, label, labelSide) {
+  drawPhysicalVector(alpha, beta, maximum, maximumLength, vectorColor, label,
+                          labelSide, labelColor) {
     let magnitude = sqrt(alpha * alpha + beta * beta);
     if (magnitude < 0.001) return;
     let physicalAngle = atan2(beta, alpha);
     let length = magnitude * this.limitedVectorScale(magnitude, maximum, maximumLength);
-    this.drawArrow(this.screenAngle(physicalAngle), length, vectorColor, label, 2.3, labelSide);
+    this.drawArrow(this.screenAngle(physicalAngle), length, vectorColor, label, 2.3,
+      labelSide, undefined, labelColor);
   }
 
   // Масштаб «пикселей на единицу». Обычно он постоянный — тогда длина вектора
@@ -692,7 +694,8 @@ class MotorView {
   // haloColor необязателен: если задан, стрелка и подпись сначала рисуются
   // этим цветом чуть толще — получается обводка, которая держит стрелку
   // видимой на подложке её же цвета.
-  drawArrow(angle, length, arrowColor, label, weightFactor, labelSide = 0, haloColor) {
+  drawArrow(angle, length, arrowColor, label, weightFactor, labelSide = 0, haloColor,
+            labelColor = arrowColor) {
     let weight = max(1.2, this.outerRadius * 0.008 * weightFactor);
     let haloWeight = 3.0;
     if (haloColor) {
@@ -709,7 +712,7 @@ class MotorView {
     } else {
       noStroke();
     }
-    fill(arrowColor);
+    fill(labelColor);
     textAlign(CENTER, CENTER);
     const labelSize = max(13.0, this.outerRadius * 0.076);
     const labelRadius = length + max(11.0, labelSize * 0.8);

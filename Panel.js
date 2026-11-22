@@ -400,7 +400,7 @@ class MachineStage {
   buildLegend() {
     let entries = [
       ["motor-vector-current", "ток i"],
-      ["vector-voltage", "напряжение u"],
+      ["motor-vector-voltage", "напряжение u"],
       ["motor-vector-emf", "ЭДС E"],
       ["torque-motor", "Mдв"],
       ["torque-load", "Mнагр"],

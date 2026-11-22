@@ -95,6 +95,7 @@ const DARK_PALETTE = {
   vectorEmf: [236, 102, 190],
   // Палитра разреза машины учитывает подложку красного и синего полюсов.
   motorVectorCurrent: [73, 220, 232],
+  motorVectorVoltage: [247, 205, 74],
   motorVectorEmf: [236, 102, 190],
   // Поток ротора асинхронной машины — почти белый: остальные цвета уже
   // заняты током, напряжением, ЭДС и осями.
@@ -229,6 +230,7 @@ const LIGHT_PALETTE = {
   vectorVoltageReference: [168, 120, 8, 125],
   vectorEmf: [186, 40, 140],
   motorVectorCurrent: [147, 228, 0],
+  motorVectorVoltage: [255, 216, 0],
   motorVectorEmf: [247, 79, 202],
   vectorFlux: [36, 44, 58],
   torqueMotor: [26, 138, 78, 225],

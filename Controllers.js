@@ -68,6 +68,10 @@ class ControlSettings {
   mode = MODE_MANUAL;
   loadTorque = 0.0;
 
+  // Возможности демонстрационного профиля сохраняются при сбросе ползунков.
+  openLoopVoltsPerHertz = false;
+  useRotorFluxReference = false;
+
   // Ручные задания в неподвижной системе α–β: их пишет MotorView, когда
   // тянут указатель внутри статора. Ток и напряжение хранятся отдельно,
   // чтобы переключение между ними не теряло того, что было задано раньше.
@@ -83,6 +87,7 @@ class ControlSettings {
   // Задания и коэффициенты векторного режима. Один и тот же ПИ-регулятор тока
   // (Kp, Ki) используется и здесь, и в ручном задании тока: это буквально
   // один контур тока, просто заданный по-разному.
+  rotorFluxReference = DEFAULT_INDUCTION_ROTOR_FLUX;
   currentQReference = 0.0;
   currentKp = 4.0;
   currentKi = 800.0;
@@ -137,6 +142,7 @@ class ControlSettings {
     this.openLoopFrequency = 0.0;
     this.commutationVoltage = DEFAULT_COMMUTATION_VOLTAGE;
 
+    this.rotorFluxReference = DEFAULT_INDUCTION_ROTOR_FLUX;
     this.currentQReference = 0.0;
     this.currentKp = 4.0;
     this.currentKi = 800.0;
@@ -336,11 +342,14 @@ class DriveController {
   // вектором, либо выпадает из него — при слишком большой нагрузке или
   // слишком быстром разгоне частоты.
   updateOpenLoopMode(timeStep) {
-    // Фаза интегрируется от частоты, поэтому знак частоты задаёт направление
-    // вращения вектора, а её изменение ползунком не даёт скачка фазы.
-    this.openLoopAngle = wrapAngle(this.openLoopAngle + TWO_PI * this.settings.openLoopFrequency * timeStep);
-    this.voltageCommand.x = this.settings.openLoopVoltage * cos(this.openLoopAngle);
-    this.voltageCommand.y = this.settings.openLoopVoltage * sin(this.openLoopAngle);
+    // На частотной странице амплитуда следует за |f|, а знак f задаёт
+    // направление вращения. Интегрирование частоты сохраняет фазу при скачке f.
+    const frequency = this.settings.openLoopFrequency;
+    const voltage = this.settings.openLoopVoltsPerHertz
+      ? this.parameters.maximumVoltage * abs(frequency) / this.parameters.ratedFrequency
+      : this.settings.openLoopVoltage;
+    this.openLoopAngle = wrapAngle(this.openLoopAngle + TWO_PI * frequency * timeStep);
+    this.voltageCommand.set(voltage * cos(this.openLoopAngle), voltage * sin(this.openLoopAngle));
     this.currentDReference = 0.0;
     this.currentQReference = 0.0;
   }
@@ -362,9 +371,10 @@ class DriveController {
   // момента не будет вовсе.
   updateVectorMode(state, timeStep) {
     let induction = this.isInduction();
-    this.currentDReference = induction
-      ? this.parameters.ratedRotorFlux / this.parameters.magnetizingInductance
-      : 0.0;
+    const useRotorFluxReference = induction && this.settings.useRotorFluxReference;
+    const rotorFlux = useRotorFluxReference
+      ? this.settings.rotorFluxReference : this.parameters.ratedRotorFlux;
+    this.currentDReference = induction ? rotorFlux / this.parameters.magnetizingInductance : 0.0;
     // Ток намагничивания занимает часть предельного тока, и на момент
     // остаётся только остаток.
     let torqueCurrentLimit = sqrt(max(this.parameters.maximumCurrent * this.parameters.maximumCurrent
@@ -385,7 +395,9 @@ class DriveController {
         + speedTrackingGain * (this.currentQReference - unsaturatedCurrent) * timeStep;
       this.speedIntegrator = constrain(this.speedIntegrator, -torqueCurrentLimit, torqueCurrentLimit);
     } else {
-      this.currentQReference = this.settings.currentQReference;
+      this.currentQReference = useRotorFluxReference
+        ? clampMagnitude(this.settings.currentQReference, torqueCurrentLimit)
+        : this.settings.currentQReference;
     }
 
     // Оси d–q и токи в них. У PMSM угол — это угол ротора, и токи id, iq

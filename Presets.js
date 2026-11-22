@@ -16,6 +16,8 @@ const PROFILE_MANUAL_VOLTAGE = "manual-voltage";
 const PROFILE_MANUAL_CURRENT = "manual-current";
 const PROFILE_OPEN_LOOP = "open-loop";
 const PROFILE_VECTOR = "vector";
+const PROFILE_OPEN_LOOP_INDUCTION = "open-loop-induction";
+const PROFILE_VECTOR_INDUCTION = "vector-induction";
 const PROFILE_AUTO_COMMUTATION = "auto-commutation";
 
 // documentTitle — заголовок вкладки, panelTitle — заголовок панели управления
@@ -67,6 +69,28 @@ const DEMO_PROFILES = {
     singleMode: true,
     singleManualVector: true,
   },
+  [PROFILE_OPEN_LOOP_INDUCTION]: {
+    name: PROFILE_OPEN_LOOP_INDUCTION,
+    documentTitle: "АД — частотное управление",
+    panelTitle: "Частотное управление АД",
+    mode: MODE_OPEN_LOOP,
+    manualVectorType: MANUAL_VECTOR_CURRENT,
+    singleMode: true,
+    singleManualVector: true,
+    machine: MACHINE_INDUCTION,
+    openLoopVoltsPerHertz: true,
+  },
+  [PROFILE_VECTOR_INDUCTION]: {
+    name: PROFILE_VECTOR_INDUCTION,
+    documentTitle: "АД — векторное управление",
+    panelTitle: "Векторное управление АД",
+    mode: MODE_VECTOR,
+    manualVectorType: MANUAL_VECTOR_CURRENT,
+    singleMode: true,
+    singleManualVector: true,
+    machine: MACHINE_INDUCTION,
+    useRotorFluxReference: true,
+  },
   [PROFILE_AUTO_COMMUTATION]: {
     name: PROFILE_AUTO_COMMUTATION,
     documentTitle: "PMSM — автокоммутация",
@@ -114,11 +138,13 @@ function resolveDemoProfile(machineType) {
 function applyDemoProfile(profile, settings) {
   settings.mode = profile.mode;
   settings.manualVectorType = profile.manualVectorType;
+  settings.openLoopVoltsPerHertz = profile.openLoopVoltsPerHertz === true;
+  settings.useRotorFluxReference = profile.useRotorFluxReference === true;
 }
 
 // -- выбор машины -------------------------------------------------------------
 //
-// Машину может объявить сама страница (induction/ или auto-commutation/).
+// Машину может объявить сама страница (например, induction/).
 // Остальные страницы принимают ?machine=induction. Без явного выбора — PMSM.
 //
 // Переключатель в панели не меняет машину на ходу, а открывает тот же адрес

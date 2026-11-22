@@ -21,12 +21,13 @@
   проверенную.
 - Компоновки проверяются параметром `?layout=compact` / `?layout=desktop`,
   режимы — страницами `manual-current/`, `manual-voltage/`, `open-loop/`,
-  `vector/`, `auto-commutation/` или `?mode=<имя>` на корневой.
+  `vector/`, `auto-commutation/`, `open-loop-induction/`,
+  `vector-induction/` или `?mode=<имя>` на корневой.
 
 ## Поменял здесь — проверь там
 
 **Новый `.js`-файл.**
-- Подключить во всех семи `index.html` (корень и шесть подпапок; в подпапках
+- Подключить во всех девяти `index.html` (корень и восемь подпапок; в подпапках
   путь с `../`) в правильном порядке: файл идёт после тех, чьи имена использует.
 - Добавить в список файлов в `tests/run-diagnostics.js` в том же порядке.
 - Строка в «Устройстве проекта» в `README.md`.
@@ -123,7 +124,7 @@ CSS-переменные, которые `Theme.js` выставляет из к
 атрибуту `data-layout`; решение о компоновке — только `resolveLayoutMode`.
 
 **Страница `park/`** (преобразование Парка) самостоятельна: из корня берёт
-только `Theme.js`, `version.js` и `Updater.js`, её файлы не подключаются к семи `index.html` и не входят в
+только `Theme.js`, `version.js` и `Updater.js`, её файлы не подключаются к девяти `index.html` и не входят в
 `run-diagnostics.js` — у неё свой `tests/park-diagnostics.js`. Цвета — тоже в
 `Theme.js` (`componentAlpha`, `componentBeta` и общие ключи осей и векторов).
 

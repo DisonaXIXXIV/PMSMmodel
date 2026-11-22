@@ -39,10 +39,12 @@ function runSimulationDiagnostics() {
   testNegativeSpeedLoopStep();
   testCurrentAntiWindup();
   testInductionNoLoadStart();
+  testInductionVoltsPerHertzProfile();
   testInductionSteadyStateTorque();
   testInductionParameterControls();
   testInductionManualCurrentStep();
   testInductionVectorControl();
+  testInductionVariableRotorFluxProfile();
   testInductionSpeedLoop();
   testGuiParameterReset();
   testMotorParameterControls();
@@ -257,6 +259,42 @@ function testNegativeSpeedLoopStep() {
   }
 }
 
+function testInductionVoltsPerHertzProfile() {
+  const parameters = new InductionMotorParameters();
+  const settings = new ControlSettings(parameters);
+  const profile = demoProfile(PROFILE_OPEN_LOOP_INDUCTION, MACHINE_INDUCTION);
+  applyDemoProfile(profile, settings);
+  const motor = new InductionMotorModel(parameters);
+  const controller = new DriveController(parameters, settings);
+  const step = 0.0001;
+  settings.openLoopVoltage = 120.0;
+
+  for (const [frequency, amplitude] of [[50, 311], [25, 155.5], [-25, 155.5], [0, 0]]) {
+    const previousAngle = controller.openLoopAngle;
+    settings.openLoopFrequency = frequency;
+    controller.update(motor.state, step);
+    diagnosticNear("U/f applies the voltage immediately at " + frequency + " Hz",
+      controller.voltageCommand.magnitude(), amplitude, 1e-9);
+    diagnosticNear("U/f takes the signed frequency immediately at " + frequency + " Hz",
+      signedAngle(controller.openLoopAngle - previousAngle), TWO_PI * frequency * step, 1e-10);
+  }
+
+  const sliders = panelSliderDescriptions(parameters, settings)
+    .filter((slider) => !slider.common && controlApplies(slider, settings));
+  diagnosticTrue("The U/f profile has only the frequency slider in its mode card",
+    sliders.length === 1 && sliders[0].setting === "openLoopFrequency"
+    && sliders[0].minimum === -50 && sliders[0].maximum === 50);
+  settings.openLoopFrequency = 25;
+  runDiagnosticSteps(motor, controller, settings, 30000);
+  diagnosticNear("The motor driven by U/f reaches the 25 Hz synchronous speed at no load",
+    rpmFromRadians(motor.state.mechanicalSpeed), 1500, 18);
+
+  settings.resetGuiParametersPreservingMode();
+  diagnosticTrue("Reset keeps U/f and zeroes the frequency",
+    settings.openLoopVoltsPerHertz && settings.mode === MODE_OPEN_LOOP
+    && settings.openLoopFrequency === 0);
+}
+
 // Асинхронная машина: пуск прямо от вращающегося напряжения, без регуляторов.
 // На холостом ходу она обязана выйти почти на синхронную скорость — 25 Гц при
 // p = 1 это 1500 об/мин, — отставая только на скольжение от трения. Поток при
@@ -432,6 +470,44 @@ function testInductionVectorControl() {
     Math.abs(signedAngle(testController.fluxEstimateAngle - testMotor.state.fieldAngle)), 0.001);
   diagnosticNear("The flux observer tracks the rotor flux magnitude",
     Math.hypot(testController.fluxEstimateAlpha, testController.fluxEstimateBeta), flux, 0.002);
+}
+
+function testInductionVariableRotorFluxProfile() {
+  const parameters = new InductionMotorParameters();
+  const settings = new ControlSettings(parameters);
+  const profile = demoProfile(PROFILE_VECTOR_INDUCTION, MACHINE_INDUCTION);
+  applyDemoProfile(profile, settings);
+  const motor = new InductionMotorModel(parameters);
+  const controller = new DriveController(parameters, settings);
+
+  for (const target of [0.45, 1.15]) {
+    settings.rotorFluxReference = target;
+    runDiagnosticSteps(motor, controller, settings, 12000);
+    diagnosticNear("The adjustable flux sets the magnetizing current at " + target + " Wb",
+      controller.currentDReference, target / parameters.magnetizingInductance, 1e-10);
+    diagnosticNear("The actual rotor flux settles to " + target + " Wb",
+      Math.hypot(motor.state.fluxAlpha, motor.state.fluxBeta), target, 0.01);
+  }
+
+  const slider = panelSliderDescriptions(parameters, settings)
+    .find((item) => item.setting === "rotorFluxReference");
+  diagnosticTrue("The flux slider is visible in direct torque-current control",
+    controlApplies(slider, settings));
+  settings.speedLoopEnabled = true;
+  diagnosticTrue("The flux slider stays visible with the speed loop enabled",
+    controlApplies(slider, settings));
+  diagnosticTrue("The old vector profile still uses its rated flux",
+    !panelSliderDescriptions(parameters).some((item) => item.setting === "rotorFluxReference"));
+  settings.resetGuiParametersPreservingMode();
+  diagnosticTrue("Reset retains adjustable flux and restores the nominal reference",
+    settings.useRotorFluxReference && settings.rotorFluxReference === parameters.ratedRotorFlux);
+
+  parameters.magnetizingInductance = 0.05;
+  settings.rotorFluxReference = 1.2;
+  settings.currentQReference = -25;
+  controller.update(motor.state, 0.0001);
+  diagnosticNear("The direct torque current respects the remaining current budget",
+    controller.currentQReference, -7, 1e-10);
 }
 
 // Контур скорости асинхронной машины с теми же коэффициентами, что у PMSM.
@@ -691,7 +767,7 @@ function testDemoProfiles() {
       console.log("FAIL: profile " + name + " calls itself " + profile.name);
     }
 
-    let testParameters = new MotorParameters();
+    let testParameters = createMotorParameters(profile.machine ?? MACHINE_PMSM);
     let testSettings = new ControlSettings(testParameters);
     applyDemoProfile(profile, testSettings);
     let testController = new DriveController(testParameters, testSettings);

@@ -85,19 +85,29 @@ function forcedLayoutMode() {
 // scale — во сколько раз показанное значение больше хранимого; нужно одной
 // индуктивности, которая хранится в генри, а показывается в миллигенри.
 
-function panelSliderDescriptions(parameters) {
+function panelSliderDescriptions(parameters,
+    { openLoopVoltsPerHertz = false, useRotorFluxReference = false } = {}) {
+  const frequencyLimit = openLoopVoltsPerHertz ? parameters.ratedFrequency : 100.0;
   return [
     { setting: "loadTorque", label: "Момент нагрузки", unit: " Н·м",
       minimum: -parameters.maximumLoadTorque, maximum: parameters.maximumLoadTorque,
       step: 0.5, decimals: 1, modes: [], common: true },
-    { setting: "openLoopVoltage", label: "Амплитуда напряжения", unit: " В",
-      minimum: 0.0, maximum: parameters.maximumVoltage,
-      step: 1.0, decimals: 0, modes: [MODE_OPEN_LOOP] },
+    ...(openLoopVoltsPerHertz ? [] : [
+      { setting: "openLoopVoltage", label: "Амплитуда напряжения", unit: " В",
+        minimum: 0.0, maximum: parameters.maximumVoltage,
+        step: 1.0, decimals: 0, modes: [MODE_OPEN_LOOP] },
+    ]),
     { setting: "openLoopFrequency", label: "Электрическая частота", unit: " Гц",
-      minimum: -100.0, maximum: 100.0, step: 0.5, decimals: 1, modes: [MODE_OPEN_LOOP] },
+      minimum: -frequencyLimit, maximum: frequencyLimit,
+      step: 0.5, decimals: 1, modes: [MODE_OPEN_LOOP] },
     { setting: "commutationVoltage", label: "Амплитуда напряжения", unit: " В",
       minimum: 0.0, maximum: COMMUTATION_MAXIMUM_VOLTAGE,
       step: 1.0, decimals: 0, modes: [MODE_AUTO_COMMUTATION], machines: [MACHINE_PMSM] },
+    ...(useRotorFluxReference ? [
+      { setting: "rotorFluxReference", label: "Задание потокосцепления ψr*", unit: " Вб",
+        minimum: 0.1, maximum: 1.2, step: 0.05, decimals: 2, modes: [MODE_VECTOR],
+        machines: [MACHINE_INDUCTION] },
+    ] : []),
     { setting: "currentQReference", label: "Задание тока iq", unit: " А",
       minimum: -parameters.maximumCurrent, maximum: parameters.maximumCurrent,
       step: 0.1, decimals: 1, modes: [MODE_VECTOR], speedLoop: false },
@@ -625,7 +635,7 @@ class ControlPanel {
   // одинаковыми голубыми кнопками, и по виду нельзя было понять, что меняет
   // кнопка — сам режим работы или параметр внутри него.
   buildControlGroup() {
-    let descriptions = panelSliderDescriptions(this.parameters);
+    let descriptions = panelSliderDescriptions(this.parameters, this.settings);
 
     // «Машина»: показания и момент нагрузки. Нагрузка действует в любом режиме
     // и режимом не управляет, поэтому стоит не среди его органов, а рядом с

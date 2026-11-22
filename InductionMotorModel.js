@@ -37,6 +37,7 @@ const DEFAULT_INDUCTION_ROTOR_RESISTANCE = 1.0;
 const DEFAULT_INDUCTION_MAGNETIZING_INDUCTANCE = 0.15;
 const DEFAULT_INDUCTION_LEAKAGE_INDUCTANCE = 0.003;
 const DEFAULT_INDUCTION_INERTIA = 0.1;
+const DEFAULT_INDUCTION_ROTOR_FLUX = 1.0;
 
 // Паспорт асинхронной машины. Поля, общие с MotorParameters (полюсы,
 // трение, пределы), названы так же: регуляторы, отрисовка и панель читают их,
@@ -53,9 +54,9 @@ class InductionMotorParameters {
   leakageInductance = DEFAULT_INDUCTION_LEAKAGE_INDUCTANCE;
   polePairs = 1;
 
-  // Поток ротора, который держит векторный режим. Задание тока id — это
-  // ratedRotorFlux / Lm, так что оно следует за ползунком Lm само.
-  ratedRotorFlux = 1.0;
+  // Номинальные значения задают исходную точку для U/f и намагничивания.
+  ratedRotorFlux = DEFAULT_INDUCTION_ROTOR_FLUX;
+  ratedFrequency = 50.0;
 
   // Механика и пределы — те же, что у PMSM, чтобы машины было с чем сравнить.
   inertia = DEFAULT_INDUCTION_INERTIA;

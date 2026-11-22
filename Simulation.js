@@ -1,20 +1,18 @@
-// Симулятор с фиксированным шагом: связывает регуляторы с моделью и решает,
-// сколько модельного времени приходится на один нарисованный кадр.
-//
-// Шаг постоянен и не зависит от частоты кадров: модель должна вести себя
-// одинаково и на 60 Гц, и на 144 Гц, и при просадке отрисовки. Плата за это —
-// замедленный показ: за кадр проходит 1 мс модельного времени, то есть при
-// 60 FPS процессы идут примерно в 16,7 раза медленнее реальных. Для показа это
-// и нужно: переходный процесс в контуре тока длится единицы миллисекунд и в
-// реальном темпе был бы просто мгновенной вспышкой.
+// Симулятор с фиксированным шагом связывает регуляторы с моделью.
+// У АД ход модельного времени следует за временем кадров с замедлением
+// 25:1. При 50 Гц поле делает на экране два оборота в секунду.
+const INDUCTION_DISPLAY_SLOWDOWN = 25;
+// После свёрнутой вкладки догоняем только последние 50 мс.
+const MAXIMUM_INDUCTION_FRAME_MS = 50;
 
 class FixedStepSimulator {
   // 100 мкс — шаг интегрирования. Электрическая постоянная времени машины
   // L/R = 5 мс, так что на неё приходится 50 шагов: метод Рунге — Кутты 4-го
   // порядка держит такой шаг с большим запасом даже при быстрых регуляторах.
-  // 1 мс модельного времени на кадр — 10 шагов на кадр.
   fixedTimeStep = 0.0001;
+  // Для PMSM сохраняется 1 мс модельного времени на кадр.
   simulatedTimePerFrame = 0.001;
+  inductionTimeRemainder = 0.0;
 
   motor;
   controller;
@@ -29,14 +27,19 @@ class FixedStepSimulator {
     this.settings = settings;
   }
 
-  // Один кадр отрисовки = stepsPerFrame шагов модели. Пауза останавливает
-  // время модели целиком, но не мешает ни рисовать, ни крутить ползунки:
-  // изменения настроек применятся, как только пауза снимется.
-  advanceFrame(paused) {
+  // За кадр выполняется целое число шагов. Остаток времени АД переносится
+  // на следующий кадр, чтобы округление не меняло скорость показа.
+  advanceFrame(paused, elapsedMilliseconds = 1000 / 60) {
     this.stepsLastFrame = 0;
     if (paused) return;
 
     let stepsPerFrame = round(this.simulatedTimePerFrame / this.fixedTimeStep);
+    if (this.motor.parameters.machineType === MACHINE_INDUCTION) {
+      const elapsedSeconds = Math.min(elapsedMilliseconds, MAXIMUM_INDUCTION_FRAME_MS) / 1000;
+      this.inductionTimeRemainder += elapsedSeconds / INDUCTION_DISPLAY_SLOWDOWN;
+      stepsPerFrame = Math.floor((this.inductionTimeRemainder + Number.EPSILON) / this.fixedTimeStep);
+      this.inductionTimeRemainder -= stepsPerFrame * this.fixedTimeStep;
+    }
     for (let step = 0; step < stepsPerFrame; step++) {
       // Порядок внутри шага: сначала регуляторы смотрят на текущее состояние и
       // выдают напряжение, затем модель делает по нему шаг. Это обычная для
@@ -49,9 +52,9 @@ class FixedStepSimulator {
     }
   }
 
-  // Сброс (клавиша R или кнопка «Сброс»). Время модели живёт в MotorState и
-  // обнуляется там, здесь остаётся только счётчик шагов.
+  // Время модели обнуляется в MotorState. Здесь сбрасывается остаток кадра.
   resetClock() {
+    this.inductionTimeRemainder = 0.0;
     this.stepsLastFrame = 0;
   }
 }

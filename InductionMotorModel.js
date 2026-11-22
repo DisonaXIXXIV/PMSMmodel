@@ -230,7 +230,7 @@ class InductionMotorModel {
     return mechanicalFrictionTorque(this.parameters, mechanicalSpeed, torqueBeforeFriction);
   }
 
-  // Всё, что пересчитывается из состояния: углы, d–q по потоку, ЭДС, ток
+  // Всё, что пересчитывается из состояния: углы, x–y по потоку, ЭДС, ток
   // ротора, скольжение, моменты.
   updateDerivedValues(voltageAlpha, voltageBeta, loadTorque) {
     const state = this.state;
@@ -240,7 +240,7 @@ class InductionMotorModel {
     state.voltageBeta = voltageBeta;
 
     // Ось d — по потоку ротора. Пока потока практически нет, его направление
-    // — шум, и оси d–q на картинке метались бы; тогда они остаются там, где
+    // — шум, и оси x–y на картинке метались бы; тогда они остаются там, где
     // были.
     const fluxMagnitude = Math.hypot(state.fluxAlpha, state.fluxBeta);
     if (fluxMagnitude > 1e-4) {

@@ -88,6 +88,7 @@ function forcedLayoutMode() {
 function panelSliderDescriptions(parameters,
     { openLoopVoltsPerHertz = false, useRotorFluxReference = false } = {}) {
   const frequencyLimit = openLoopVoltsPerHertz ? parameters.ratedFrequency : 100.0;
+  const torqueAxis = machineDescription(parameters.machineType).fieldAxes[1];
   return [
     { setting: "loadTorque", label: "Момент нагрузки", unit: " Н·м",
       minimum: -parameters.maximumLoadTorque, maximum: parameters.maximumLoadTorque,
@@ -108,7 +109,7 @@ function panelSliderDescriptions(parameters,
         minimum: 0.1, maximum: 1.2, step: 0.05, decimals: 2, modes: [MODE_VECTOR],
         machines: [MACHINE_INDUCTION] },
     ] : []),
-    { setting: "currentQReference", label: "Задание тока iq", unit: " А",
+    { setting: "currentQReference", label: "Задание тока i" + torqueAxis, unit: " А",
       minimum: -parameters.maximumCurrent, maximum: parameters.maximumCurrent,
       step: 0.1, decimals: 1, modes: [MODE_VECTOR], speedLoop: false },
     { setting: "currentKp", label: "Kp регулятора тока", unit: "",
@@ -248,16 +249,20 @@ const PANEL_CHECKBOX_DESCRIPTIONS = [
   { setting: "speedLoopEnabled", label: "Контур скорости", modes: [MODE_VECTOR] },
 ];
 
-const VISUALISATION_CHECKBOX_DESCRIPTIONS = [
-  { setting: "showVoltage", label: "Вектор напряжения" },
-  { setting: "showEmf", label: "Вектор ЭДС" },
-  { setting: "showAlphaBetaAxes", label: "Оси α–β" },
-  { setting: "showDqAxes", label: "Оси d–q" },
-  { setting: "showAlphaBetaProjections", label: "Проекции iα, iβ" },
-  { setting: "showDqProjections", label: "Проекции id, iq" },
-  { setting: "lockDqFrame", label: "Зафиксировать оси d–q" },
-  { setting: "showFlux", label: "Вектор потока ψr", machines: [MACHINE_INDUCTION] },
-];
+function visualisationCheckboxDescriptions(machineType) {
+  const [directAxis, torqueAxis] = machineDescription(machineType).fieldAxes;
+  const axes = directAxis + "–" + torqueAxis;
+  return [
+    { setting: "showVoltage", label: "Вектор напряжения" },
+    { setting: "showEmf", label: "Вектор ЭДС" },
+    { setting: "showAlphaBetaAxes", label: "Оси α–β" },
+    { setting: "showDqAxes", label: "Оси " + axes },
+    { setting: "showAlphaBetaProjections", label: "Проекции iα, iβ" },
+    { setting: "showDqProjections", label: "Проекции i" + directAxis + ", i" + torqueAxis },
+    { setting: "lockDqFrame", label: "Зафиксировать оси " + axes },
+    { setting: "showFlux", label: "Вектор потока ψr", machines: [MACHINE_INDUCTION] },
+  ];
+}
 
 // Орган управления показывается, если его режим совпадает с выбранным и если
 // совпадает требование к контуру скорости.
@@ -454,9 +459,10 @@ class MachineStage {
   }
 
   readoutNames() {
+    const [directAxis, torqueAxis] = machineDescription(this.parameters.machineType).fieldAxes;
     let names = {
       speed: "n", motorTorque: "Mдв", loadTorque: "Mнагр",
-      currentD: "id", currentQ: "iq", voltage: "|u|",
+      currentD: "i" + directAxis, currentQ: "i" + torqueAxis, voltage: "|u|",
     };
     for (const key of Object.keys(names)) {
       this.readoutValues[key].name.textContent = names[key];
@@ -722,7 +728,7 @@ class ControlPanel {
 
   buildVisualGroup() {
     let list = element("div", "checkboxes");
-    for (const description of VISUALISATION_CHECKBOX_DESCRIPTIONS) {
+    for (const description of visualisationCheckboxDescriptions(this.machineType)) {
       if (!controlForMachine(description, this.machineType)) continue;
       list.append(this.buildCheckbox(description, true));
     }

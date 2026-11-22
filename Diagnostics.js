@@ -40,6 +40,7 @@ function runSimulationDiagnostics() {
   testCurrentAntiWindup();
   testInductionNoLoadStart();
   testInductionVoltsPerHertzProfile();
+  testInductionDisplayPace();
   testInductionSteadyStateTorque();
   testInductionParameterControls();
   testInductionManualCurrentStep();
@@ -256,6 +257,32 @@ function testNegativeSpeedLoopStep() {
   } else {
     diagnosticFailures++;
     console.log("FAIL: Negative speed display sign (" + formatSignedNumber(finalRpm, 0) + ")");
+  }
+}
+
+function testInductionDisplayPace() {
+  const parameters = new InductionMotorParameters();
+  const settings = new ControlSettings(parameters);
+  applyDemoProfile(demoProfile(PROFILE_OPEN_LOOP_INDUCTION, MACHINE_INDUCTION), settings);
+  settings.openLoopFrequency = 50;
+  for (const framesPerSecond of [30, 60, 144]) {
+    const motor = new InductionMotorModel(parameters);
+    const controller = new DriveController(parameters, settings);
+    const simulator = new FixedStepSimulator(motor, controller, settings);
+    let angle = 0.0;
+    for (let frame = 0; frame < framesPerSecond; frame++) {
+      const previous = controller.openLoopAngle;
+      simulator.advanceFrame(false, 1000 / framesPerSecond);
+      angle += signedAngle(controller.openLoopAngle - previous);
+    }
+    diagnosticNear("Induction time advances 40 ms per second at " + framesPerSecond + " FPS",
+      motor.state.simulationTime, 0.04, 1e-10);
+    diagnosticNear("The 50 Hz induction field makes two turns per second at " + framesPerSecond + " FPS",
+      angle / TWO_PI, 2.0, 1e-10);
+    const time = motor.state.simulationTime;
+    simulator.advanceFrame(true, 50);
+    diagnosticNear("Pausing the induction model freezes its clock at " + framesPerSecond + " FPS",
+      motor.state.simulationTime, time, 1e-12);
   }
 }
 
@@ -1095,7 +1122,7 @@ function testPanelControlDescriptions() {
     let sliders = panelSliderDescriptions(testParameters)
       .concat(motorParameterSliderDescriptions(machine.type));
     let descriptions = sliders
-      .concat(PANEL_CHECKBOX_DESCRIPTIONS, VISUALISATION_CHECKBOX_DESCRIPTIONS)
+      .concat(PANEL_CHECKBOX_DESCRIPTIONS, visualisationCheckboxDescriptions(machine.type))
       .filter((description) => controlForMachine(description, machine.type));
     let claimed = [];
     count += descriptions.length;
@@ -1292,6 +1319,11 @@ function testHelpContents() {
     let sections = helpSections(machine.type);
     let text = helpPlainText(machine.type);
     let modes = sections[0].items.map((item) => item[0]);
+    const induction = machine.type === MACHINE_INDUCTION;
+    diagnosticTrue("The " + machine.type + " help uses the machine's rotating axes and currents",
+      induction
+        ? text.includes("x–y") && text.includes("токи ix и iy") && !text.includes("d–q")
+        : text.includes("оси d–q") && text.includes("токи id и iq"));
     for (const description of MODE_DESCRIPTIONS) {
       diagnosticTrue("The " + machine.type + " help matches the availability of " + description.label,
         modes.includes(description.label) === controlForMachine(description, machine.type));
@@ -1459,7 +1491,7 @@ function testFluxVectorDisplay() {
   if (stubbedColor) delete globalThis.color;
 }
 
-// У асинхронной машины фиксация осей d–q следует за потоком, а не за
+// У асинхронной машины фиксация осей x–y следует за потоком, а не за
 // ротором: ротор отстаёт от поля, и остановиться на экране должно поле.
 function testInductionReferenceFrameLock() {
   let testParameters = new InductionMotorParameters();

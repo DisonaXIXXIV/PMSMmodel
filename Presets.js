@@ -154,9 +154,9 @@ function applyDemoProfile(profile, settings) {
 
 // Порядок — это и порядок кнопок переключателя: номер кнопки — номер записи.
 const MACHINE_DESCRIPTIONS = [
-  { type: MACHINE_PMSM, label: "Синхронная", shortName: "PMSM",
+  { type: MACHINE_PMSM, label: "Синхронная", shortName: "PMSM", fieldAxes: ["d", "q"],
     title: "Синхронная машина с постоянными магнитами" },
-  { type: MACHINE_INDUCTION, label: "Асинхронная", shortName: "АД",
+  { type: MACHINE_INDUCTION, label: "Асинхронная", shortName: "АД", fieldAxes: ["x", "y"],
     title: "Асинхронная машина с короткозамкнутым ротором" },
 ];
 

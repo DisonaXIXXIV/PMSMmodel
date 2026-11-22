@@ -181,7 +181,7 @@ function buildInterface() {
 function draw() {
   if (diagnosticsMode) return;
 
-  simulator.advanceFrame(simulationPaused);
+  simulator.advanceFrame(simulationPaused, deltaTime);
   // Система наблюдения пересчитывается до отрисовки, но после шага модели:
   // при зафиксированных осях d–q картинка поворачивается вслед за ротором.
   motorView.updateReferenceFrame(motor.state);

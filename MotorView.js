@@ -134,6 +134,7 @@ function torqueArcEnd(arc) {
 class MotorView {
   parameters;
   settings;
+  fieldAxes;
 
   centerX;
   centerY;
@@ -155,19 +156,15 @@ class MotorView {
   constructor(parameters, settings) {
     this.parameters = parameters;
     this.settings = settings;
+    this.fieldAxes = machineDescription(parameters.machineType).fieldAxes;
   }
 
   // Поворот системы наблюдения, раз в кадр.
   //
-  // «Зафиксировать оси d–q» не останавливает ротор физически — модель работает
-  // как раньше. Поворачивается взгляд: картинка доворачивается на тот же угол,
-  // что прошли оси d–q с момента фиксации, и они оказываются неподвижны, а
-  // статор и оси α–β начинают вращаться вокруг них. Так видно, что векторное
-  // управление — это и есть переход в такую систему координат.
-  //
-  // У PMSM оси d–q — это ротор, и останавливается он. У асинхронной машины
-  // оси d–q идут по потоку, и на месте замирает поле, а ротор медленно
-  // проворачивается назад — на скольжение.
+  // При фиксации вращающихся осей картинка поворачивается вслед за ними.
+  // Статор и оси α–β движутся относительно зафиксированной системы.
+  // У PMSM на месте остаётся ротор, у АД — поток ротора, а сам ротор
+  // проворачивается на угол скольжения.
   updateReferenceFrame(state) {
     if (this.settings.lockDqFrame && !this.previousLockState) {
       this.mechanicalAngleAtLock = this.frameAngle(state);
@@ -447,7 +444,7 @@ class MotorView {
   // стержни одинаковы, а значки тока в них бегут вместе с полем, а не с
   // ротором. Метка — стержень 0 (он стоит ровно на угле θ ротора), луч к нему
   // от вала и треугольник на ободе в зазоре. По ней видно, как ротор отстаёт
-  // от ψr и от тока: оси d–q и векторы уходят вперёд, метка — за ними.
+  // от ψr и от тока: оси x–y и векторы уходят вперёд, метка — за ними.
   // Скорость метку не бледнит: она нужна именно на ходу.
   drawRotorZeroMark(state, barRadius, barSize) {
     let angle = this.screenAngle(rotorBarAngle(0, state.mechanicalAngle));
@@ -479,11 +476,8 @@ class MotorView {
     circle(this.centerX, this.centerY, this.rotorRadius * 0.055);
   }
 
-  // Две системы координат: неподвижная α–β и вращающаяся d–q — с ротором у
-  // PMSM и с потоком ротора у асинхронной машины (угол fieldAngle).
-  // Оси d–q рисуются и тогда, когда флажок их показа снят, но включена
-  // фиксация: без них было бы непонятно, относительно чего остановлена
-  // картинка.
+  // Оси d–q вращаются с ротором PMSM, оси x–y — с потоком ротора АД.
+  // При фиксации оси видны, чтобы обозначить систему наблюдения.
   drawAxes(state) {
     let axisRadius = this.statorInnerRadius * 0.94;
     if (this.settings.showAlphaBetaAxes) {
@@ -492,9 +486,9 @@ class MotorView {
     }
     if (this.settings.showDqAxes || this.settings.lockDqFrame) {
       this.drawAxis(this.screenAngle(state.fieldAngle), axisRadius * 0.91,
-        themeColor(theme().axisD), "d", "");
+        themeColor(theme().axisD), this.fieldAxes[0], "");
       this.drawAxis(this.screenAngle(state.fieldAngle + HALF_PI), axisRadius * 0.91,
-        themeColor(theme().axisQ), "q", "");
+        themeColor(theme().axisQ), this.fieldAxes[1], "");
     }
   }
 
@@ -515,9 +509,7 @@ class MotorView {
   }
 
   // Проекции вектора тока на выбранные оси со штриховыми линиями достроения.
-  // Это главная учебная картинка файла: id и iq — не абстракция, а проекции
-  // того же вектора тока на оси, вращающиеся вместе с ротором. Видно и то, что
-  // момент даёт только iq.
+  // Поперечная проекция тока (iq у PMSM, iy у АД) определяет момент.
   drawCurrentProjections(state) {
     let currentMagnitude = sqrt(state.currentAlpha * state.currentAlpha
       + state.currentBeta * state.currentBeta);
@@ -539,9 +531,9 @@ class MotorView {
       this.drawProjectionGuides(this.screenAngle(state.fieldAngle), state.currentD * scale,
         state.currentQ * scale, themeColor(theme().guideDq));
       this.drawSignedComponent(this.screenAngle(state.fieldAngle), state.currentD * scale,
-        themeColor(theme().componentD), "id");
+        themeColor(theme().componentD), "i" + this.fieldAxes[0]);
       this.drawSignedComponent(this.screenAngle(state.fieldAngle + HALF_PI), state.currentQ * scale,
-        themeColor(theme().componentQ), "iq");
+        themeColor(theme().componentQ), "i" + this.fieldAxes[1]);
     }
   }
 

@@ -42,7 +42,7 @@
   `resetGuiParametersPreservingMode()`. Менять оба.
 - Орган управления — одна запись в списках `Panel.js`
   (`panelSliderDescriptions`, `PANEL_CHECKBOX_DESCRIPTIONS`,
-  `VISUALISATION_CHECKBOX_DESCRIPTIONS`). `testPanelControlDescriptions` сам
+  `visualisationCheckboxDescriptions()`). `testPanelControlDescriptions` сам
   проверит, что поле существует, не занято другим органом и что значение по
   умолчанию попадает в диапазон ползунка.
 - Сброс проверяет `testGuiParameterReset`.
@@ -68,7 +68,7 @@
 (`MotorParameters` + `PMSMModel`, `InductionMotorParameters` +
 `InductionMotorModel`), а `MotorState`, `step()`, режимы и панель общие;
 ветвятся по `machineType` регуляторы (`updateVectorMode`, наблюдатель потока),
-`MotorView` (ротор, ψr, фиксация осей) и подписи. Оси d–q везде берутся из
+`MotorView` (ротор, ψr, фиксация осей) и подписи. Оси d–q у PMSM и x–y у АД берутся из
 `state.fieldAngle`, а не из `electricalAngle`: у асинхронной машины это угол
 потока. Машина выбирается при открытии страницы (`requestedMachineType` в
 `Presets.js`); переключатель перезагружает страницу с `?machine=`.

@@ -399,9 +399,9 @@ class MachineStage {
   // CSS, поэтому смена темы перекрашивает и её.
   buildLegend() {
     let entries = [
-      ["vector-current", "ток i"],
+      ["motor-vector-current", "ток i"],
       ["vector-voltage", "напряжение u"],
-      ["vector-emf", "ЭДС E"],
+      ["motor-vector-emf", "ЭДС E"],
       ["torque-motor", "Mдв"],
       ["torque-load", "Mнагр"],
     ];

@@ -549,24 +549,26 @@ class MotorView {
   // напряжение и ЭДС. Поток ротора — отдельно, ниже по слоям (drawFluxVector). Задание рисуется только в ручном режиме — в остальных
   // его задают числом, а не мышью.
   drawElectricalVectors(state) {
+    const palette = theme();
+    const outline = themeColor(palette.motorVectorOutline);
     if (this.settings.mode == MODE_MANUAL) {
       if (this.settings.manualVectorType == MANUAL_VECTOR_CURRENT) {
         this.drawPhysicalVector(this.settings.manualCurrentAlpha, this.settings.manualCurrentBeta,
           this.parameters.maximumCurrent, this.currentVectorMaximumLength(),
-          themeColor(theme().vectorCurrentReference), "i*");
+          themeColor(palette.vectorCurrentReference), "i*");
       } else {
         this.drawPhysicalVector(this.settings.manualVoltageAlpha, this.settings.manualVoltageBeta,
           MANUAL_MAXIMUM_VOLTAGE, this.statorInnerRadius * 0.91,
-          themeColor(theme().vectorVoltageReference), "u*");
+          themeColor(palette.vectorVoltageReference), "u*");
       }
     }
     this.drawPhysicalVector(state.currentAlpha, state.currentBeta, this.parameters.maximumCurrent,
-      this.currentVectorMaximumLength(), themeColor(theme().vectorCurrent), "i");
+      this.currentVectorMaximumLength(), themeColor(palette.motorVectorCurrent), "i", outline, -1);
     let manualVoltage = this.isManualVoltageScale();
     if (this.settings.showVoltage) {
       this.drawPhysicalVector(state.voltageAlpha, state.voltageBeta,
         this.voltageDisplayMaximum(), this.statorInnerRadius * 0.91,
-        themeColor(theme().vectorVoltage), "u");
+        themeColor(palette.vectorVoltage), "u", outline, 1);
     }
     if (this.settings.showEmf) {
       // В ручном режиме напряжения ЭДС рисуется ровно в масштабе u: тот же
@@ -575,7 +577,7 @@ class MotorView {
       // чтобы при u ≈ E наконечники и подписи не сливались.
       this.drawPhysicalVector(state.emfAlpha, state.emfBeta, this.voltageDisplayMaximum(),
         this.statorInnerRadius * (manualVoltage ? 0.91 : 0.86),
-        themeColor(theme().vectorEmf), "E");
+        themeColor(palette.motorVectorEmf), "E", outline, -1);
     }
   }
 
@@ -608,13 +610,14 @@ class MotorView {
   // Вектор, заданный проекциями на α и β. Совсем короткие не рисуются: у
   // вектора нулевой длины нет направления, и наконечник со подписью
   // превратились бы в кляксу в центре.
-  drawPhysicalVector(alpha, beta, maximum, maximumLength,
-                          vectorColor, label) {
+  drawPhysicalVector(alpha, beta, maximum, maximumLength, vectorColor, label,
+                          outline, labelSide) {
     let magnitude = sqrt(alpha * alpha + beta * beta);
     if (magnitude < 0.001) return;
     let physicalAngle = atan2(beta, alpha);
     let length = magnitude * this.limitedVectorScale(magnitude, maximum, maximumLength);
-    this.drawArrow(this.screenAngle(physicalAngle), length, vectorColor, label, 2.3);
+    this.drawArrow(this.screenAngle(physicalAngle), length, vectorColor, label, 2.3,
+      outline, labelSide);
   }
 
   // Масштаб «пикселей на единицу». Обычно он постоянный — тогда длина вектора
@@ -692,7 +695,7 @@ class MotorView {
   // haloColor необязателен: если задан, стрелка и подпись сначала рисуются
   // этим цветом чуть толще — получается обводка, которая держит стрелку
   // видимой на подложке её же цвета.
-  drawArrow(angle, length, arrowColor, label, weightFactor, haloColor) {
+  drawArrow(angle, length, arrowColor, label, weightFactor, haloColor, labelSide = 0) {
     let weight = max(1.2, this.outerRadius * 0.008 * weightFactor);
     let haloWeight = 3.0;
     if (haloColor) {
@@ -705,14 +708,19 @@ class MotorView {
     this.drawArrowLines(angle, length);
     if (haloColor) {
       stroke(haloColor);
-      strokeWeight(haloWeight);
+      strokeWeight(2.0);
     } else {
       noStroke();
     }
     fill(arrowColor);
     textAlign(CENTER, CENTER);
-    textSize(max(9.0, this.outerRadius * 0.058));
-    text(label, this.pointX(angle, length + 11.0), this.pointY(angle, length + 11.0));
+    const labelSize = max(13.0, this.outerRadius * 0.076);
+    const labelRadius = length + max(11.0, labelSize * 0.8);
+    // Боковой отступ разводит подписи u и E между собой, а i — с проекциями.
+    const offset = labelSide * labelSize * 0.7;
+    textSize(labelSize);
+    text(label, this.pointX(angle, labelRadius) - sin(angle) * offset,
+      this.pointY(angle, labelRadius) - cos(angle) * offset);
     noStroke();
   }
 
